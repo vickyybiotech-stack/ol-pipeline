@@ -22,6 +22,37 @@
         .path-option { transition: all 0.2s; cursor: pointer; }
         .path-option.selected { ring: 2; }
         .path-option input:checked + span { font-weight: 900; }
+
+        /* ── Progress Bar ── */
+        .progress-bar { display: flex; align-items: flex-start; justify-content: center; overflow-x: auto; padding: 0 0.5rem; }
+        .progress-step { display: flex; flex-direction: column; align-items: center; position: relative; flex: 1; min-width: 0; }
+        .progress-step .step-circle {
+            width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 900; z-index: 2; transition: all 0.3s; flex-shrink: 0;
+            border: 3px solid #cbd5e1;
+            background: white; color: #94a3b8;
+        }
+        .progress-step.completed .step-circle { background: #10b981; border-color: #10b981; color: white; }
+        .progress-step.active .step-circle { background: #3b82f6; border-color: #3b82f6; color: white; animation: pulse-ring 1.8s ease-in-out infinite; }
+        @keyframes pulse-ring { 0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,.4)} 50%{box-shadow:0 0 0 8px rgba(59,130,246,0)} }
+        .progress-step .step-label { margin-top: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; color: #94a3b8; text-align: center; line-height: 1.15; letter-spacing: 0.02em; max-width: 72px; word-wrap: break-word; }
+        .progress-step.completed .step-label { color: #10b981; }
+        .progress-step.active .step-label { color: #3b82f6; }
+        .progress-step .step-user { margin-top: 2px; font-size: 9px; font-weight: 900; color: #6366f1; }
+        /* Connector lines */
+        .progress-step:not(:last-child)::after {
+            content: ''; position: absolute; top: 15px; left: calc(50% + 18px); right: calc(-50% + 18px);
+            height: 3px; background: #e2e8f0; z-index: 1; transition: background 0.3s;
+        }
+        .progress-step.completed:not(:last-child)::after { background: #10b981; }
+        .progress-step .step-label-short { display: none; }
+        @media (max-width: 480px) {
+            .progress-step .step-circle { width: 26px; height: 26px; font-size: 9px; border-width: 2px; }
+            .progress-step .step-label { font-size: 7px; max-width: 52px; }
+            .progress-step .step-label-full { display: none; }
+            .progress-step .step-label-short { display: block; }
+            .progress-step:not(:last-child)::after { top: 12px; left: calc(50% + 15px); right: calc(-50% + 15px); }
+        }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen pb-20 font-sans text-slate-900">
@@ -54,6 +85,11 @@
                     <input type="text" id="stiffnesses" placeholder="5k, 50k" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
                 </div>
             </div>
+        </section>
+
+        <!-- STEP PROGRESS BAR -->
+        <section id="progressBarSection" class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200" style="display:none;">
+            <div id="progressBar" class="progress-bar"></div>
         </section>
 
         <div id="gates" class="space-y-6">
@@ -347,6 +383,7 @@
                         }
                     } else {
                         document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
+                        updateProgressBar({});
                     }
                 });
                 // Load reference images (shared across all batches)
@@ -610,6 +647,84 @@
             `;
             cont.appendChild(d);
         }
+
+        // --- 7. PROGRESS BAR ---
+        const GATE_DEFS = [
+            { num: 1, label: "Micropillars", short: "Micro" },
+            { num: 2, label: "Coating",      short: "Coat" },
+            { num: 3, label: "Reagents",     short: "Reag" },
+            { num: 4, label: "OPC Isolation", short: "OPC" },
+            { num: 5, label: "Direct Seed",  short: "Seed" },
+            { num: 6, label: "Expansion",    short: "Exp" },
+            { num: 7, label: "Lift & Seed",  short: "Lift" },
+        ];
+
+        // Which gates to show based on path
+        function getVisibleGates(path) {
+            if (path === "direct")  return [1,2,3,4,5];
+            if (path === "expand")  return [1,2,3,4,6,7];
+            if (path === "both")    return [1,2,3,4,5,6,7];
+            return [1,2,3,4]; // no path chosen yet
+        }
+
+        // Determine completion: a gate is "done" if its data has at least one checkbox checked or it simply exists with a `by` field
+        function isGateComplete(data, gateNum) {
+            const g = data["g" + gateNum];
+            if (!g || !g.checks) return false;
+            return g.checks.some(v => v); // at least one check ticked
+        }
+
+        let _lastBatchData = null;
+
+        function updateProgressBar(data) {
+            _lastBatchData = data;
+            const path = data && data.seedPath ? data.seedPath : null;
+            const visibleNums = getVisibleGates(path);
+            const bar = document.getElementById("progressBar");
+            const section = document.getElementById("progressBarSection");
+
+            section.style.display = "";
+            bar.innerHTML = "";
+
+            let foundActive = false;
+
+            visibleNums.forEach((num, idx) => {
+                const def = GATE_DEFS.find(d => d.num === num);
+                const done = data ? isGateComplete(data, num) : false;
+                const isActive = !done && !foundActive;
+                if (isActive) foundActive = true;
+
+                const step = document.createElement("div");
+                step.className = "progress-step" + (done ? " completed" : (isActive ? " active" : ""));
+
+                const user = (data && data["g" + num] && data["g" + num].by) ? data["g" + num].by : "";
+
+                step.innerHTML = `
+                    <div class="step-circle">${done ? "✓" : num}</div>
+                    <div class="step-label step-label-full">${def.label}</div>
+                    <div class="step-label step-label-short">${def.short}</div>
+                    ${user ? `<div class="step-user">${user}</div>` : `<div class="step-user" style="color:#cbd5e1">—</div>`}
+                `;
+                bar.appendChild(step);
+            });
+        }
+
+        // Patch renderBoard to also update progress bar
+        const _origRenderBoard = renderBoard;
+        renderBoard = function(data) {
+            _origRenderBoard(data);
+            updateProgressBar(data);
+        };
+
+        // Also update progress bar when path changes
+        const _origApplyPath = applyPathChoice;
+        applyPathChoice = function(choice) {
+            _origApplyPath(choice);
+            if (_lastBatchData) {
+                _lastBatchData.seedPath = choice;
+                updateProgressBar(_lastBatchData);
+            }
+        };
 
         window.onload = () => lucide.createIcons();
     </script>
