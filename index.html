@@ -80,11 +80,16 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Experiment Batch ID</label>
-                    <input type="text" id="batchId" placeholder="e.g. MAY12-OPC" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                    <input type="text" id="batchId" placeholder="e.g. rOPC-V4-1W-20260414" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                    <div class="mt-2 text-[10px] text-slate-500 leading-relaxed bg-indigo-50 border border-indigo-100 rounded-xl p-2">
+                        <span class="font-black text-indigo-700">Format example:</span>
+                        <code class="font-black text-indigo-800">rOPC-V4-1W-20260414</code><br>
+                        <span><span class="font-bold">rOPC</span>=rat OPCs, <span class="font-bold">V4</span>=mould version, <span class="font-bold">1W</span>=well format, <span class="font-bold">20260414</span>=date (YYYYMMDD)</span>
+                    </div>
                 </div>
                 <div>
-                    <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Stiffnesses</label>
-                    <input type="text" id="stiffnesses" placeholder="5k, 50k" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                    <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Experiment Notes</label>
+                    <textarea id="notes" rows="4" placeholder="e.g., 5K stiffness, dose response experiment, ..." class="w-full bg-slate-50 p-4 rounded-2xl text-sm font-bold outline-none border-2 border-indigo-100 focus:border-indigo-500 transition resize-y"></textarea>
                 </div>
             </div>
         </section>
@@ -368,6 +373,29 @@
         const storage = firebase.storage();
         let batchId = null;
 
+        function getLegacyStiffness(data) {
+            if (!data) return "";
+            for (let i = 1; i <= 7; i++) {
+                const g = data["g" + i];
+                if (g && typeof g.stiffness === "string" && g.stiffness.trim()) return g.stiffness.trim();
+            }
+            return "";
+        }
+
+        function getBatchNotes(data) {
+            if (!data) return "";
+            if (typeof data.notes === "string" && data.notes.trim()) return data.notes.trim();
+            for (let i = 1; i <= 7; i++) {
+                const g = data["g" + i];
+                if (g && typeof g.notes === "string" && g.notes.trim()) return g.notes.trim();
+            }
+            return getLegacyStiffness(data);
+        }
+
+        function syncBatchMetaFields(data) {
+            document.getElementById("notes").value = getBatchNotes(data || {});
+        }
+
         // BATCH SYNC
         document.getElementById("batchId").onchange = e => {
             batchId = e.target.value.trim().toLowerCase();
@@ -376,6 +404,7 @@
                     if(doc.exists) {
                         document.getElementById("statusDot").className = "w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_green]";
                         const data = doc.data();
+                        syncBatchMetaFields(data);
                         renderBoard(data);
                         // Restore path choice
                         if(data.seedPath) {
@@ -385,12 +414,18 @@
                         }
                     } else {
                         document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
+                        syncBatchMetaFields({});
                         updateProgressBar({});
                     }
                 });
                 // Load reference images (shared across all batches)
                 loadAllReferenceImages();
             }
+        };
+
+        document.getElementById("notes").onchange = async e => {
+            if(!batchId) return;
+            await db.collection("ol_pro").doc(batchId).set({ notes: e.target.value.trim() }, { merge: true });
         };
 
         // --- BRANCHING LOGIC ---
@@ -565,11 +600,12 @@
                 const gateNum = card.dataset.gate;
                 const user = document.getElementById("userSelect").value;
                 
+                const notesValue = document.getElementById("notes").value.trim();
                 let data = {
                     by: user, 
                     time: new Date().toLocaleString(),
                     checks: Array.from(card.querySelectorAll(".gate-check")).map(c=>c.checked),
-                    stiffness: document.getElementById("stiffnesses").value
+                    notes: notesValue
                 };
 
                 // Capture photos from all slots
@@ -590,7 +626,7 @@
                     data.cpp = document.getElementById("cellsPerPup").innerText;
                 }
 
-                await db.collection("ol_pro").doc(batchId).set({ ["g"+gateNum]: data }, { merge: true });
+                await db.collection("ol_pro").doc(batchId).set({ ["g"+gateNum]: data, notes: notesValue }, { merge: true });
                 alert("Gate " + gateNum + " Recorded ✅");
             };
         });
@@ -1002,12 +1038,12 @@
             ty += 14;
             doc.setFontSize(9);
             doc.setTextColor(...C.slate);
-            const stiff = document.getElementById("stiffnesses").value || "—";
+            const notesText = getBatchNotes(data) || "—";
             doc.setFont("helvetica", "bold");
-            doc.text("Stiffnesses:", ml + 22, ty);
+            doc.text("Notes:", ml + 22, ty);
             doc.setFont("helvetica", "normal");
             doc.setTextColor(...C.black);
-            doc.text(stiff, ml + 50, ty);
+            doc.text(notesText, ml + 50, ty);
 
             ty += 8;
             const dates = getDateRange();
@@ -1142,8 +1178,9 @@
                 if (g && g.time) {
                     kvLine("Timestamp", g.time);
                 }
-                if (g && g.stiffness) {
-                    kvLine("Stiffness", g.stiffness);
+                const gateNotes = g ? ((g.notes && String(g.notes).trim()) || (g.stiffness && String(g.stiffness).trim()) || "") : "";
+                if (gateNotes) {
+                    kvLine("Notes", gateNotes);
                 }
 
                 y += 2;
@@ -1331,7 +1368,7 @@
             doc.text("Batch Configuration", ml + 2, y);
             y += 6;
             kvLine("Batch ID", batchId.toUpperCase());
-            kvLine("Stiffnesses", stiff);
+            kvLine("Notes", notesText);
             kvLine("Post-Isolation Path", pathLabels[data.seedPath] || "Not selected");
             kvLine("Active Gates", visibleGates.map(n => `G${n}`).join(", "));
             kvLine("Report Generated", new Date().toLocaleString("en-GB"));
