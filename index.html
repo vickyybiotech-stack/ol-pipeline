@@ -455,13 +455,110 @@
             return `ol/${safeBatch}/g${safeGate}/${safeSlot}/${Date.now()}_${safeFile}`;
         }
 
+        function normalizeStoragePath(rawPathOrUrl) {
+            if (!rawPathOrUrl) return "";
+            let raw = String(rawPathOrUrl).trim();
+            if (!raw) return "";
+
+            // Already a plain storage path
+            if (raw.startsWith("ol/")) return raw;
+
+            // gs://bucket/path format
+            if (raw.startsWith("gs://")) {
+                raw = raw.replace(/^gs:\/\/[^/]+\/?/, "");
+                return raw.replace(/^\/+/, "");
+            }
+
+            // Firebase download URLs: .../o/<url-encoded-storage-path>?alt=media
+            const marker = "/o/";
+            const markerIndex = raw.indexOf(marker);
+            if (markerIndex !== -1) {
+                let encodedPart = raw.slice(markerIndex + marker.length);
+                const queryIdx = encodedPart.indexOf("?");
+                if (queryIdx !== -1) encodedPart = encodedPart.slice(0, queryIdx);
+                const hashIdx = encodedPart.indexOf("#");
+                if (hashIdx !== -1) encodedPart = encodedPart.slice(0, hashIdx);
+
+                let decoded = encodedPart;
+                try { decoded = decodeURIComponent(decoded); } catch (_) {}
+                // Handle double-encoded data if present
+                try { decoded = decodeURIComponent(decoded); } catch (_) {}
+
+                return decoded.replace(/^\/+/, "");
+            }
+
+            // Fallback for full URLs that might still contain /ol/... in pathname
+            try {
+                const urlObj = new URL(raw);
+                const path = decodeURIComponent(urlObj.pathname || "");
+                const olIdx = path.indexOf("/ol/");
+                if (olIdx !== -1) return path.slice(olIdx + 1).replace(/^\/+/, "");
+            } catch (_) {}
+
+            // Last-resort fallback: trim leading slash and decode when possible
+            let fallback = raw.replace(/^\/+/, "");
+            try { fallback = decodeURIComponent(fallback); } catch (_) {}
+            return fallback;
+        }
+
         function isPathInBatchGate(path, batch, gate, slot) {
             const safeBatch = normalizeBatchId(batch);
             const safeGate = String(gate || "").replace(/[^0-9]/g, "");
             const safeSlot = sanitizeSlotName(slot);
-            if (!path || !safeBatch || !safeGate) return false;
-            const expectedPrefix = `ol/${safeBatch}/g${safeGate}/${safeSlot}/`;
-            return String(path).startsWith(expectedPrefix);
+            const normalizedPath = normalizeStoragePath(path);
+
+            if (!normalizedPath || !safeBatch || !safeGate) {
+                if (String(gate || "") === "4") {
+                    console.log("[path-check] reject: missing fields", { path, normalizedPath, safeBatch, safeGate, safeSlot });
+                }
+                return false;
+            }
+
+            const expectedGatePrefix = `ol/${safeBatch}/g${safeGate}/`;
+            const expectedSlotPrefix = `${expectedGatePrefix}${safeSlot}/`;
+            const lowerPath = normalizedPath.toLowerCase();
+            const lowerGatePrefix = expectedGatePrefix.toLowerCase();
+            const lowerSlotPrefix = expectedSlotPrefix.toLowerCase();
+
+            let result = false;
+            let reason = "";
+
+            if (lowerPath.startsWith(lowerSlotPrefix)) {
+                result = true;
+                reason = "slot-prefix-match";
+            } else if (lowerPath.startsWith(lowerGatePrefix)) {
+                const remainder = lowerPath.slice(lowerGatePrefix.length);
+                const firstSeg = remainder.split("/")[0] || "";
+                const knownSlot = ["main", "pre", "post"].includes(firstSeg);
+
+                if (knownSlot) {
+                    result = firstSeg === safeSlot;
+                    reason = result ? "known-slot-match" : "known-slot-mismatch";
+                } else {
+                    // Backward compatibility for legacy images without explicit slot folders.
+                    result = true;
+                    reason = "legacy-gate-prefix-match";
+                }
+            } else {
+                result = false;
+                reason = "batch-or-gate-mismatch";
+            }
+
+            if (safeGate === "4") {
+                console.log("[path-check] Gate 4", {
+                    inputPath: path,
+                    normalizedPath,
+                    batch: safeBatch,
+                    gate: safeGate,
+                    slot: safeSlot,
+                    expectedGatePrefix,
+                    expectedSlotPrefix,
+                    result,
+                    reason
+                });
+            }
+
+            return result;
         }
 
         function resetGateCard(card) {
