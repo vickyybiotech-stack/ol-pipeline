@@ -25,6 +25,16 @@
         .path-option.selected { ring: 2; }
         .path-option input:checked + span { font-weight: 900; }
 
+        /* ── Batch Search / Rename ── */
+        .batch-dropdown { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 60; max-height: 280px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 1rem; box-shadow: 0 14px 28px rgba(15,23,42,0.12); }
+        .batch-item { width: 100%; text-align: left; padding: 0.7rem 0.85rem; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
+        .batch-item:hover, .batch-item:focus-visible { background: #eef2ff; outline: none; }
+        .batch-item:last-child { border-bottom: none; }
+        .batch-create { background: #ecfdf5; color: #047857; }
+        .batch-create:hover, .batch-create:focus-visible { background: #d1fae5; }
+        .batch-muted { color: #64748b; font-size: 11px; }
+        .rename-batch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
         /* ── Progress Bar ── */
         .progress-bar { display: flex; align-items: flex-start; justify-content: center; overflow-x: auto; padding: 0 0.5rem; }
         .progress-step { display: flex; flex-direction: column; align-items: center; position: relative; flex: 1; min-width: 0; }
@@ -79,8 +89,17 @@
         <section class="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Experiment Batch ID</label>
-                    <input type="text" id="batchId" placeholder="e.g. rOPC-V4-1W-20260414" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                    <div class="flex items-center justify-between gap-2 ml-1 mb-1">
+                        <label class="text-[10px] font-black uppercase text-slate-400">Experiment Batch ID</label>
+                        <button id="renameBatchBtn" type="button" class="rename-batch-btn inline-flex items-center gap-1 text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-lg hover:bg-indigo-100 transition" disabled>
+                            <i data-lucide="pencil" size="12"></i> Rename Batch
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <input type="text" id="batchId" autocomplete="off" placeholder="e.g. rOPC-V4-1W-20260414" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                        <div id="batchDropdown" class="batch-dropdown hidden"></div>
+                    </div>
+                    <p id="batchFeedback" class="mt-2 text-[11px] font-bold text-slate-500 hidden"></p>
                     <div class="mt-2 text-[10px] text-slate-500 leading-relaxed bg-indigo-50 border border-indigo-100 rounded-xl p-2">
                         <span class="font-black text-indigo-700">Format example:</span>
                         <code class="font-black text-indigo-800">rOPC-V4-1W-20260414</code><br>
@@ -200,6 +219,10 @@
             <!-- GATE 4 (ADVANCED) -->
             <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-emerald-600 gate-card" data-gate="4">
                 <h2 class="text-lg font-black italic mb-4 uppercase tracking-tight">4. OPC Isolation (MACS)</h2>
+                <label class="flex items-center gap-3 bg-emerald-50 p-4 rounded-2xl cursor-pointer mb-4 border border-emerald-100">
+                    <input type="checkbox" class="gate-check w-6 h-6 accent-emerald-600">
+                    <span class="font-bold text-sm text-emerald-900">OPC isolation and MACS completed</span>
+                </label>
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                     <div class="bg-slate-50 p-4 rounded-2xl">
@@ -372,6 +395,10 @@
         const db = firebase.firestore();
         const storage = firebase.storage();
         let batchId = null;
+        let batchUnsubscribe = null;
+        let batchListCache = [];
+        let isBatchListLoading = false;
+        let isRenameInProgress = false;
 
         function getLegacyStiffness(data) {
             if (!data) return "";
@@ -396,37 +423,436 @@
             document.getElementById("notes").value = getBatchNotes(data || {});
         }
 
-        // BATCH SYNC
-        document.getElementById("batchId").onchange = e => {
-            batchId = e.target.value.trim().toLowerCase();
-            if(batchId) {
-                db.collection("ol_pro").doc(batchId).onSnapshot(doc => {
-                    if(doc.exists) {
-                        document.getElementById("statusDot").className = "w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_green]";
-                        const data = doc.data();
-                        syncBatchMetaFields(data);
-                        renderBoard(data);
-                        // Restore path choice
-                        if(data.seedPath) {
-                            applyPathChoice(data.seedPath);
-                            const radio = document.querySelector(`input[name="seedPath"][value="${data.seedPath}"]`);
-                            if(radio) radio.checked = true;
+        // BATCH SEARCH / SELECT / LOAD
+        const batchInputEl = document.getElementById("batchId");
+        const batchDropdownEl = document.getElementById("batchDropdown");
+        const batchFeedbackEl = document.getElementById("batchFeedback");
+        const renameBatchBtn = document.getElementById("renameBatchBtn");
+
+        function normalizeBatchId(v) {
+            return String(v || "").trim().toLowerCase();
+        }
+
+        function setBatchFeedback(message, tone = "neutral") {
+            if (!message) {
+                batchFeedbackEl.classList.add("hidden");
+                batchFeedbackEl.textContent = "";
+                return;
+            }
+            const toneClass = tone === "error"
+                ? "text-red-600"
+                : (tone === "success" ? "text-emerald-600" : "text-slate-500");
+            batchFeedbackEl.className = `mt-2 text-[11px] font-bold ${toneClass}`;
+            batchFeedbackEl.textContent = message;
+        }
+
+        function setRenameButtonState(enabled, label) {
+            renameBatchBtn.disabled = !enabled || isRenameInProgress;
+            renameBatchBtn.innerHTML = `<i data-lucide="pencil" size="12"></i> ${label || "Rename Batch"}`;
+            if (typeof lucide !== "undefined") lucide.createIcons();
+        }
+
+        function resetBoardUI() {
+            document.querySelectorAll(".gate-card .gate-check").forEach(c => c.checked = false);
+            document.querySelectorAll(".img-preview").forEach(p => p.innerHTML = "");
+            document.querySelectorAll(".gate-meta").forEach(m => m.textContent = "NOT SYNCED");
+            document.querySelectorAll(".status-pill").forEach(p => {
+                p.textContent = "PENDING";
+                p.className = "status-pill text-[10px] font-black bg-slate-100 px-3 py-1 rounded-full text-slate-400";
+            });
+            document.getElementById("pupInput").value = 1;
+            document.getElementById("preCount").value = "";
+            document.getElementById("preViability").value = "";
+            document.getElementById("postCount").value = "";
+            document.getElementById("postViability").value = "";
+            document.getElementById("cellsPerPup").innerText = "0";
+
+            document.querySelectorAll('input[name="seedPath"]').forEach(r => r.checked = false);
+            document.querySelectorAll('.path-option').forEach(o => o.classList.remove('border-violet-500', 'bg-violet-100'));
+            applyPathChoice(null);
+            _lastBatchData = {};
+        }
+
+        function parseLegacyTimeToMs(str) {
+            if (!str || typeof str !== "string") return 0;
+            const direct = Date.parse(str);
+            if (!Number.isNaN(direct)) return direct;
+            const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+            if (!m) return 0;
+            const d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, y = parseInt(m[3], 10);
+            const h = parseInt(m[4], 10), mi = parseInt(m[5], 10), s = parseInt(m[6] || "0", 10);
+            return new Date(y, mo, d, h, mi, s).getTime();
+        }
+
+        function getBatchPreviewMeta(data) {
+            let bestMs = 0;
+            let bestText = "";
+            let bestBy = "";
+
+            const updatedAt = data && data.updatedAt;
+            if (updatedAt && typeof updatedAt.toMillis === "function") {
+                bestMs = updatedAt.toMillis();
+                bestText = new Date(bestMs).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+                bestBy = data.updatedBy || "";
+            }
+
+            for (let i = 1; i <= 7; i++) {
+                const g = data && data["g" + i];
+                if (!g || !g.time) continue;
+                const ms = parseLegacyTimeToMs(g.time);
+                if (ms >= bestMs) {
+                    bestMs = ms;
+                    bestText = ms
+                        ? new Date(ms).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                        : g.time;
+                    bestBy = g.by || bestBy;
+                }
+            }
+
+            if (!bestText) bestText = "Never updated";
+            return { ms: bestMs, text: bestText, by: bestBy || "—" };
+        }
+
+        function hideBatchDropdown() {
+            batchDropdownEl.classList.add("hidden");
+        }
+
+        function showBatchDropdown() {
+            batchDropdownEl.classList.remove("hidden");
+        }
+
+        function renderBatchDropdown(query = "") {
+            const q = normalizeBatchId(query);
+            const batches = batchListCache.filter(b => !q || b.id.includes(q));
+            const exactMatch = batchListCache.some(b => b.id === q);
+
+            if (isBatchListLoading) {
+                showBatchDropdown();
+                batchDropdownEl.innerHTML = `<div class="p-3 text-[11px] font-bold text-slate-500">Loading batches...</div>`;
+                return;
+            }
+
+            if (!batches.length && !q) {
+                showBatchDropdown();
+                batchDropdownEl.innerHTML = `<div class="p-3 text-[11px] font-bold text-slate-500">No existing batches yet.</div>`;
+                return;
+            }
+
+            let html = "";
+            batches.forEach(b => {
+                html += `
+                    <button type="button" class="batch-item" data-batch-id="${b.id}">
+                        <div class="text-[12px] font-black text-slate-800 truncate">${b.id}</div>
+                        <div class="batch-muted">Last updated: ${b.preview.text} by ${b.preview.by}</div>
+                    </button>
+                `;
+            });
+
+            if (q && !exactMatch) {
+                html += `
+                    <button type="button" class="batch-item batch-create" data-create-id="${q}">
+                        <div class="text-[12px] font-black">+ Create New Batch "${q}"</div>
+                        <div class="batch-muted !text-emerald-700">Press Enter or click to start recording this batch.</div>
+                    </button>
+                `;
+            }
+
+            if (!html) {
+                html = `<div class="p-3 text-[11px] font-bold text-slate-500">No matching batches found.</div>`;
+            }
+
+            batchDropdownEl.innerHTML = html;
+            showBatchDropdown();
+        }
+
+        async function fetchBatchList(force = false) {
+            if (isBatchListLoading) return batchListCache;
+            if (!force && batchListCache.length) return batchListCache;
+
+            isBatchListLoading = true;
+            renderBatchDropdown(batchInputEl.value);
+            try {
+                const snap = await db.collection("ol_pro").get();
+                const rows = [];
+                snap.forEach(doc => {
+                    const data = doc.data() || {};
+                    if (data.archived === true) return;
+                    rows.push({
+                        id: doc.id,
+                        data,
+                        preview: getBatchPreviewMeta(data)
+                    });
+                });
+
+                rows.sort((a, b) => {
+                    if (b.preview.ms !== a.preview.ms) return b.preview.ms - a.preview.ms;
+                    return a.id.localeCompare(b.id);
+                });
+
+                batchListCache = rows;
+            } catch (err) {
+                console.warn("Failed to fetch batches:", err);
+                setBatchFeedback("Could not fetch existing batches right now.", "error");
+            } finally {
+                isBatchListLoading = false;
+                renderBatchDropdown(batchInputEl.value);
+            }
+            return batchListCache;
+        }
+
+        function subscribeToBatch(id) {
+            const nextId = normalizeBatchId(id);
+            if (!nextId) return;
+
+            if (batchUnsubscribe) {
+                batchUnsubscribe();
+                batchUnsubscribe = null;
+            }
+
+            batchId = nextId;
+            batchInputEl.value = nextId;
+            setBatchFeedback("", "neutral");
+            setRenameButtonState(false, "Rename Batch");
+
+            batchUnsubscribe = db.collection("ol_pro").doc(batchId).onSnapshot(doc => {
+                if (doc.exists) {
+                    document.getElementById("statusDot").className = "w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_green]";
+                    const data = doc.data() || {};
+                    syncBatchMetaFields(data);
+                    renderBoard(data);
+
+                    if (data.seedPath) {
+                        applyPathChoice(data.seedPath);
+                        const radio = document.querySelector(`input[name="seedPath"][value="${data.seedPath}"]`);
+                        if (radio) {
+                            radio.checked = true;
+                            radio.closest('.path-option')?.classList.add('border-violet-500', 'bg-violet-100');
                         }
                     } else {
-                        document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
-                        syncBatchMetaFields({});
-                        updateProgressBar({});
+                        applyPathChoice(null);
                     }
-                });
-                // Load reference images (shared across all batches)
-                loadAllReferenceImages();
+                    setRenameButtonState(true, "Rename Batch");
+                } else {
+                    document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
+                    resetBoardUI();
+                    syncBatchMetaFields({});
+                    updateProgressBar({});
+                    setRenameButtonState(false, "Rename Batch");
+                    setBatchFeedback(`"${batchId}" is new. Start recording to create it.`, "neutral");
+                }
+            }, err => {
+                console.error("Batch snapshot error", err);
+                setBatchFeedback("Live sync error. Please retry selecting the batch.", "error");
+                document.getElementById("statusDot").className = "w-3 h-3 bg-red-500 rounded-full shadow-[0_0_10px_red]";
+            });
+
+            loadAllReferenceImages();
+        }
+
+        async function copyStorageObject(oldPath, newPath) {
+            const oldRef = storage.ref().child(oldPath);
+            const oldUrl = await oldRef.getDownloadURL();
+            const response = await fetch(oldUrl);
+            if (!response.ok) throw new Error(`Unable to fetch image blob for ${oldPath}`);
+            const blob = await response.blob();
+
+            let metadata = undefined;
+            try {
+                const oldMeta = await oldRef.getMetadata();
+                if (oldMeta && oldMeta.contentType) metadata = { contentType: oldMeta.contentType };
+            } catch (_) {}
+
+            const newRef = storage.ref().child(newPath);
+            await newRef.put(blob, metadata);
+            const newUrl = await newRef.getDownloadURL();
+            return newUrl;
+        }
+
+        async function migrateBatchStorageAssets(oldId, newId, clonedData) {
+            const oldPrefix = `ol/${oldId}/`;
+            const newPrefix = `ol/${newId}/`;
+            const createdPaths = [];
+            let migrated = 0;
+
+            try {
+                for (let i = 1; i <= 7; i++) {
+                    const gateKey = "g" + i;
+                    const g = clonedData[gateKey];
+                    if (!g) continue;
+
+                    Object.keys(g).forEach(k => {
+                        if (!k.startsWith("imgs_")) return;
+                        if (!Array.isArray(g[k])) g[k] = [];
+                    });
+
+                    for (const key of Object.keys(g)) {
+                        if (!key.startsWith("imgs_")) continue;
+                        const list = Array.isArray(g[key]) ? g[key] : [];
+
+                        for (const img of list) {
+                            if (!img || !img.path || !img.path.startsWith(oldPrefix)) continue;
+                            const newPath = newPrefix + img.path.slice(oldPrefix.length);
+                            const newUrl = await copyStorageObject(img.path, newPath);
+                            createdPaths.push(newPath);
+                            img.path = newPath;
+                            img.url = newUrl;
+                            migrated += 1;
+                        }
+                    }
+                }
+            } catch (err) {
+                await Promise.all(createdPaths.map(p => storage.ref().child(p).delete().catch(() => null)));
+                throw err;
             }
-        };
+
+            return migrated;
+        }
+
+        async function renameBatch() {
+            if (!batchId) return alert("Load a batch before renaming.");
+            if (isRenameInProgress) return;
+
+            const oldId = batchId;
+            const proposed = prompt("Enter new batch ID", oldId);
+            if (proposed === null) return;
+
+            const newId = normalizeBatchId(proposed);
+            if (!newId) return alert("New batch ID cannot be empty.");
+            if (newId === oldId) return alert("New batch ID is the same as current ID.");
+
+            const user = document.getElementById("userSelect").value;
+            const confirmed = confirm(`Rename batch "${oldId}" to "${newId}"?
+
+This copies all gate data and images, then removes/archives the old ID.`);
+            if (!confirmed) return;
+
+            isRenameInProgress = true;
+            setRenameButtonState(false, "Renaming...");
+            setBatchFeedback("Renaming batch... please wait.", "neutral");
+
+            try {
+                const oldRef = db.collection("ol_pro").doc(oldId);
+                const newRef = db.collection("ol_pro").doc(newId);
+                const [oldSnap, newSnap] = await Promise.all([oldRef.get(), newRef.get()]);
+
+                if (!oldSnap.exists) throw new Error("Current batch does not exist in Firestore.");
+                if (newSnap.exists) throw new Error(`Batch ID "${newId}" already exists.`);
+
+                const oldData = oldSnap.data() || {};
+                const clonedData = JSON.parse(JSON.stringify(oldData));
+                const migratedCount = await migrateBatchStorageAssets(oldId, newId, clonedData);
+
+                clonedData.renamedFrom = oldId;
+                clonedData.updatedBy = user;
+                clonedData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+                clonedData.renamedAt = new Date().toISOString();
+                clonedData.renamedBy = user;
+
+                await newRef.set(clonedData, { merge: false });
+
+                try {
+                    await oldRef.delete();
+                } catch (deleteErr) {
+                    await oldRef.set({
+                        archived: true,
+                        renamedTo: newId,
+                        archivedBy: user,
+                        archivedAt: new Date().toISOString()
+                    }, { merge: true });
+                }
+
+                batchListCache = [];
+                await fetchBatchList(true);
+                subscribeToBatch(newId);
+                hideBatchDropdown();
+                setBatchFeedback(`Batch renamed successfully. Migrated ${migratedCount} image(s).`, "success");
+                alert(`Batch renamed to ${newId} ✅`);
+            } catch (err) {
+                console.error("Rename failed:", err);
+                setBatchFeedback(`Rename failed: ${err.message || err}`, "error");
+                alert(`Rename failed: ${err.message || err}`);
+            } finally {
+                isRenameInProgress = false;
+                setRenameButtonState(Boolean(batchId), "Rename Batch");
+            }
+        }
+
+        function selectBatchFromInput(rawId) {
+            const id = normalizeBatchId(rawId);
+            if (!id) return;
+            subscribeToBatch(id);
+            hideBatchDropdown();
+        }
+
+        function setupBatchInputHandlers() {
+            batchInputEl.addEventListener("focus", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("click", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("input", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("change", () => {
+                selectBatchFromInput(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("keydown", async (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const entered = normalizeBatchId(batchInputEl.value);
+                    if (!entered) return;
+                    await fetchBatchList(false);
+                    selectBatchFromInput(entered);
+                } else if (e.key === "Escape") {
+                    hideBatchDropdown();
+                }
+            });
+
+            batchInputEl.addEventListener("blur", () => {
+                setTimeout(hideBatchDropdown, 160);
+            });
+
+            batchDropdownEl.addEventListener("mousedown", (e) => {
+                const batchBtn = e.target.closest("[data-batch-id]");
+                if (batchBtn) {
+                    e.preventDefault();
+                    selectBatchFromInput(batchBtn.dataset.batchId);
+                    return;
+                }
+
+                const createBtn = e.target.closest("[data-create-id]");
+                if (createBtn) {
+                    e.preventDefault();
+                    selectBatchFromInput(createBtn.dataset.createId);
+                    setBatchFeedback(`New batch "${createBtn.dataset.createId}" selected.`, "success");
+                }
+            });
+
+            renameBatchBtn.addEventListener("click", renameBatch);
+        }
 
         document.getElementById("notes").onchange = async e => {
             if(!batchId) return;
-            await db.collection("ol_pro").doc(batchId).set({ notes: e.target.value.trim() }, { merge: true });
+            const user = document.getElementById("userSelect").value;
+            await db.collection("ol_pro").doc(batchId).set({
+                notes: e.target.value.trim(),
+                updatedBy: user,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            batchListCache = [];
         };
+
 
         // --- BRANCHING LOGIC ---
         function applyPathChoice(choice) {
@@ -461,7 +887,13 @@
             if(!batchId) return alert("Enter Batch ID first!");
             const selected = document.querySelector('input[name="seedPath"]:checked');
             if(!selected) return alert("Please select a path first!");
-            await db.collection("ol_pro").doc(batchId).set({ seedPath: selected.value }, { merge: true });
+            const user = document.getElementById("userSelect").value;
+            await db.collection("ol_pro").doc(batchId).set({
+                seedPath: selected.value,
+                updatedBy: user,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            batchListCache = [];
             applyPathChoice(selected.value);
             alert("Path choice saved ✅");
         };
@@ -626,7 +1058,8 @@
                     data.cpp = document.getElementById("cellsPerPup").innerText;
                 }
 
-                await db.collection("ol_pro").doc(batchId).set({ ["g"+gateNum]: data, notes: notesValue }, { merge: true });
+                await db.collection("ol_pro").doc(batchId).set({ ["g"+gateNum]: data, notes: notesValue, updatedBy: user, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                batchListCache = [];
                 alert("Gate " + gateNum + " Recorded ✅");
             };
         });
@@ -764,7 +1197,13 @@
             }
         };
 
-        window.onload = () => lucide.createIcons();
+        window.onload = async () => {
+            lucide.createIcons();
+            setupBatchInputHandlers();
+            await fetchBatchList(false);
+            renderBatchDropdown("");
+            hideBatchDropdown();
+        };
 
         // ═══════════════════════════════════════════════════
         //  PROFESSIONAL PDF LAB REPORT GENERATOR
@@ -1152,6 +1591,7 @@
                 1: ["Pillars verified at 10× magnification"],
                 2: ["Functionalised / PDL + Laminin coated", "Pillars verified at 10× magnification"],
                 3: ["Papain, Serum PBS & Media: Prepared & Sterile Filtered"],
+                4: ["OPC isolation and MACS completed"],
                 5: ["Seeded 2 wells of 4-well control plate"],
                 6: ["Cells healthy / Ready for lifting"],
                 7: ["Lifted with Accutase @ 37°C", "Counts verified & Seeded to Pillars"],
