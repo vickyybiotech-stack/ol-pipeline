@@ -2082,70 +2082,71 @@ This copies Firestore data only. Existing image files remain in their current Fi
 
                     const timeoutMs = (options && options.timeoutMs) || 30000;
                     const imageLabel = imageObj.name || imageObj.path || imageObj.url || "unnamed-image";
-                    const candidateUrls = [];
 
-                    // Always prefer a FRESH download URL from Firebase Storage (via path).
-                    // The stored imageObj.url can be a blob: URL (only valid in the original
-                    // upload session) or a stale Firebase URL with an expired token.
+                    // ── Strategy 1: Firebase SDK getBlob() via storage path ──
+                    // This completely bypasses CORS — the Firebase SDK handles the
+                    // request internally without the browser's CORS fetch restrictions.
                     const normalizedPath = normalizeStoragePath(imageObj.path || imageObj.url || "");
                     if (normalizedPath) {
                         try {
-                            const downloadUrl = await storage.ref().child(normalizedPath).getDownloadURL();
-                            if (downloadUrl) candidateUrls.push(downloadUrl);
-                        } catch (storageErr) {
-                            console.warn("[pdf-export][image] getDownloadURL failed", {
-                                imageLabel,
-                                normalizedPath,
-                                error: storageErr?.message || String(storageErr),
+                            const ref = storage.ref().child(normalizedPath);
+                            // firebase-storage-compat exposes getBlob() on the reference
+                            const blob = await Promise.race([
+                                ref.getBlob ? ref.getBlob() : Promise.reject(new Error("getBlob not available")),
+                                new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs))
+                            ]);
+                            const dataUrl = await new Promise((res, rej) => {
+                                const reader = new FileReader();
+                                reader.onload = () => res(reader.result);
+                                reader.onerror = () => rej(new Error("FileReader failed"));
+                                reader.readAsDataURL(blob);
+                            });
+                            if (dataUrl && String(dataUrl).startsWith("data:image/")) {
+                                console.log("[pdf-export][image] loaded via getBlob", { imageLabel });
+                                return { dataUrl, sourceUrl: normalizedPath, error: null };
+                            }
+                        } catch (blobErr) {
+                            console.warn("[pdf-export][image] getBlob failed, trying download URL", {
+                                imageLabel, error: blobErr?.message || String(blobErr)
                             });
                         }
                     }
 
-                    // Fall back to stored URL only if it looks like a real https URL (not blob:)
+                    // ── Strategy 2: Get a fresh download URL, load via <img> + canvas ──
+                    // img tags bypass CORS for display — we use crossOrigin="anonymous"
+                    // plus a cache-bust so Firebase returns proper CORS headers.
+                    const candidateUrls = [];
+                    if (normalizedPath) {
+                        try {
+                            const freshUrl = await storage.ref().child(normalizedPath).getDownloadURL();
+                            if (freshUrl) candidateUrls.push(freshUrl);
+                        } catch (e) {
+                            console.warn("[pdf-export][image] getDownloadURL failed", { imageLabel, error: e?.message });
+                        }
+                    }
                     if (imageObj.url && String(imageObj.url).startsWith("https://")) {
                         candidateUrls.push(imageObj.url);
                     }
 
-                    const uniqueCandidates = Array.from(new Set(candidateUrls.filter(Boolean)));
-                    console.log("[pdf-export][image] candidates", {
-                        imageLabel,
-                        normalizedPath,
-                        candidates: uniqueCandidates,
-                    });
-
-                    if (uniqueCandidates.length === 0) {
-                        return { dataUrl: null, sourceUrl: null, error: "no_candidate_urls" };
-                    }
-
-                    const errors = [];
-                    for (const candidate of uniqueCandidates) {
-                        const startedAt = Date.now();
+                    for (const candidate of candidateUrls) {
                         try {
-                            const dataUrl = await loadImageAsDataURL(candidate, timeoutMs);
-                            console.log("[pdf-export][image] loaded", {
-                                imageLabel,
-                                candidate,
-                                durationMs: Date.now() - startedAt,
-                            });
-                            return { dataUrl, sourceUrl: candidate, error: null };
+                            // Append cache-bust so browser re-fetches with Origin header,
+                            // which triggers Firebase to respond with CORS headers
+                            const bustUrl = candidate + (candidate.includes("?") ? "&" : "?") + "_cb=" + Date.now();
+                            const dataUrl = await loadImageAsDataURL(bustUrl, timeoutMs);
+                            if (dataUrl) {
+                                console.log("[pdf-export][image] loaded via canvas", { imageLabel });
+                                return { dataUrl, sourceUrl: candidate, error: null };
+                            }
                         } catch (err) {
-                            const reason = classifyImageLoadError(err);
-                            const detail = err?.message || String(err);
-                            errors.push(`${reason}: ${detail}`);
-                            console.warn("[pdf-export][image] candidate failed", {
-                                imageLabel,
-                                candidate,
-                                reason,
-                                detail,
-                                durationMs: Date.now() - startedAt,
-                            });
+                            console.warn("[pdf-export][image] canvas load failed", { imageLabel, candidate, error: err?.message });
                         }
                     }
 
                     return {
                         dataUrl: null,
-                        sourceUrl: uniqueCandidates[0] || null,
-                        error: errors.join(" | ") || "unknown_image_error",
+                        sourceUrl: candidateUrls[0] || null,
+                        error: candidateUrls.length === 0 ? "no_candidate_urls" : "all_strategies_failed",
                     };
                 }
 
