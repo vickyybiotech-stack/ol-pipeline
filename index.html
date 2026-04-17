@@ -2001,54 +2001,76 @@ This copies Firestore data only. Existing image files remain in their current Fi
                 }
 
                 function loadImageAsDataURL(url, timeoutMs) {
-                    // Use fetch → blob → FileReader instead of canvas drawImage.
-                    // The canvas approach taints the canvas when Firebase Storage
-                    // CORS headers aren't perfectly propagated, causing toDataURL()
-                    // to throw a security error even when crossOrigin="anonymous" is set.
-                    // fetch() with mode:"cors" reads the raw bytes directly, avoiding
-                    // the canvas taint restriction entirely.
+                    // Use XMLHttpRequest with responseType:"blob" → FileReader.
+                    // This avoids both the canvas-taint CORS issue (old approach)
+                    // and the fetch() mode:"cors" restriction that Firebase Storage
+                    // sometimes rejects. XHR blob approach is the most compatible
+                    // method for reading Firebase Storage images as data URLs.
                     return new Promise((resolve, reject) => {
                         let done = false;
 
                         const timer = setTimeout(() => {
                             if (done) return;
                             done = true;
+                            xhr.abort();
                             reject(new Error(`timeout after ${timeoutMs}ms`));
                         }, timeoutMs);
 
-                        fetch(url, { mode: "cors" })
-                            .then(res => {
-                                if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-                                return res.blob();
-                            })
-                            .then(blob => {
-                                if (done) return;
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                    if (done) return;
-                                    done = true;
-                                    clearTimeout(timer);
-                                    const dataUrl = reader.result;
-                                    if (!dataUrl || !String(dataUrl).startsWith("data:image/")) {
-                                        reject(new Error("invalid data URL output from FileReader"));
-                                    } else {
-                                        resolve(dataUrl);
-                                    }
-                                };
-                                reader.onerror = () => {
-                                    if (done) return;
-                                    done = true;
-                                    clearTimeout(timer);
-                                    reject(new Error("FileReader failed to read blob"));
-                                };
-                                reader.readAsDataURL(blob);
-                            })
-                            .catch(err => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open("GET", url, true);
+                        xhr.responseType = "blob";
+
+                        xhr.onload = () => {
+                            if (done) return;
+                            if (xhr.status < 200 || xhr.status >= 300) {
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error(`HTTP ${xhr.status} ${xhr.statusText}`));
+                                return;
+                            }
+                            const blob = xhr.response;
+                            if (!blob) {
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error("XHR returned empty blob"));
+                                return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => {
                                 if (done) return;
                                 done = true;
                                 clearTimeout(timer);
-                                reject(err);
-                            });
+                                const dataUrl = reader.result;
+                                if (!dataUrl || !String(dataUrl).startsWith("data:image/")) {
+                                    reject(new Error("invalid data URL from FileReader"));
+                                } else {
+                                    resolve(dataUrl);
+                                }
+                            };
+                            reader.onerror = () => {
+                                if (done) return;
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error("FileReader failed to read blob"));
+                            };
+                            reader.readAsDataURL(blob);
+                        };
+
+                        xhr.onerror = () => {
+                            if (done) return;
+                            done = true;
+                            clearTimeout(timer);
+                            reject(new Error("XHR network error"));
+                        };
+
+                        xhr.onabort = () => {
+                            if (done) return;
+                            done = true;
+                            clearTimeout(timer);
+                            reject(new Error("XHR aborted"));
+                        };
+
+                        xhr.send();
                     });
                 }
 
@@ -2062,8 +2084,9 @@ This copies Firestore data only. Existing image files remain in their current Fi
                     const imageLabel = imageObj.name || imageObj.path || imageObj.url || "unnamed-image";
                     const candidateUrls = [];
 
-                    if (imageObj.url) candidateUrls.push(imageObj.url);
-
+                    // Always prefer a FRESH download URL from Firebase Storage (via path).
+                    // The stored imageObj.url can be a blob: URL (only valid in the original
+                    // upload session) or a stale Firebase URL with an expired token.
                     const normalizedPath = normalizeStoragePath(imageObj.path || imageObj.url || "");
                     if (normalizedPath) {
                         try {
@@ -2076,6 +2099,11 @@ This copies Firestore data only. Existing image files remain in their current Fi
                                 error: storageErr?.message || String(storageErr),
                             });
                         }
+                    }
+
+                    // Fall back to stored URL only if it looks like a real https URL (not blob:)
+                    if (imageObj.url && String(imageObj.url).startsWith("https://")) {
+                        candidateUrls.push(imageObj.url);
                     }
 
                     const uniqueCandidates = Array.from(new Set(candidateUrls.filter(Boolean)));
