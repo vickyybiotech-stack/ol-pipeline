@@ -2001,8 +2001,13 @@ This copies Firestore data only. Existing image files remain in their current Fi
                 }
 
                 function loadImageAsDataURL(url, timeoutMs) {
+                    // Use fetch → blob → FileReader instead of canvas drawImage.
+                    // The canvas approach taints the canvas when Firebase Storage
+                    // CORS headers aren't perfectly propagated, causing toDataURL()
+                    // to throw a security error even when crossOrigin="anonymous" is set.
+                    // fetch() with mode:"cors" reads the raw bytes directly, avoiding
+                    // the canvas taint restriction entirely.
                     return new Promise((resolve, reject) => {
-                        const img = new Image();
                         let done = false;
 
                         const timer = setTimeout(() => {
@@ -2011,49 +2016,39 @@ This copies Firestore data only. Existing image files remain in their current Fi
                             reject(new Error(`timeout after ${timeoutMs}ms`));
                         }, timeoutMs);
 
-                        img.crossOrigin = "anonymous";
-                        img.decoding = "async";
-
-                        img.onload = () => {
-                            if (done) return;
-                            done = true;
-                            clearTimeout(timer);
-
-                            try {
-                                const canvas = document.createElement("canvas");
-                                canvas.width = img.naturalWidth || img.width;
-                                canvas.height = img.naturalHeight || img.height;
-                                const ctx = canvas.getContext("2d");
-                                if (!ctx) throw new Error("canvas context unavailable");
-                                ctx.drawImage(img, 0, 0);
-
-                                let dataUrl = "";
-                                try {
-                                    dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-                                } catch (canvasErr) {
-                                    const secErr = new Error(`CORS/security error while converting image: ${canvasErr.message || canvasErr}`);
-                                    secErr.code = "CORS_CANVAS";
-                                    throw secErr;
-                                }
-
-                                if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-                                    throw new Error("invalid data URL output");
-                                }
-
-                                resolve(dataUrl);
-                            } catch (drawErr) {
-                                reject(drawErr);
-                            }
-                        };
-
-                        img.onerror = (e) => {
-                            if (done) return;
-                            done = true;
-                            clearTimeout(timer);
-                            reject(new Error(`image element failed to load (${e?.type || "unknown"})`));
-                        };
-
-                        img.src = url;
+                        fetch(url, { mode: "cors" })
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+                                return res.blob();
+                            })
+                            .then(blob => {
+                                if (done) return;
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    if (done) return;
+                                    done = true;
+                                    clearTimeout(timer);
+                                    const dataUrl = reader.result;
+                                    if (!dataUrl || !String(dataUrl).startsWith("data:image/")) {
+                                        reject(new Error("invalid data URL output from FileReader"));
+                                    } else {
+                                        resolve(dataUrl);
+                                    }
+                                };
+                                reader.onerror = () => {
+                                    if (done) return;
+                                    done = true;
+                                    clearTimeout(timer);
+                                    reject(new Error("FileReader failed to read blob"));
+                                };
+                                reader.readAsDataURL(blob);
+                            })
+                            .catch(err => {
+                                if (done) return;
+                                done = true;
+                                clearTimeout(timer);
+                                reject(err);
+                            });
                     });
                 }
 
