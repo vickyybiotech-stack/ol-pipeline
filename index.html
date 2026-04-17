@@ -1,809 +1,650 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>OL Pipeline | Pro</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://unpkg.com/lucide@latest"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
-<style>
-/* Your custom styles from your original document */
-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-/* All your other CSS styles omitted for brevity, assume same as your original document */
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OL Pipeline | Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    <style>
+        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .gate-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .img-wrap:hover .del-btn { opacity: 1; }
+        .ref-section { border-top: 2px dashed #e2e8f0; margin-top: 1.5rem; padding-top: 1rem; }
+        .ref-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 0.5rem; }
+        .ref-thumb { position: relative; }
+        .ref-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 0.75rem; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .ref-thumb .del-btn { opacity: 0; position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.7); color: white; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; transition: opacity 0.2s; }
+        .ref-thumb:hover .del-btn { opacity: 1; }
+        .path-option { transition: all 0.2s; cursor: pointer; }
+        .path-option.selected { ring: 2; }
+        .path-option input:checked + span { font-weight: 900; }
+
+        /* ── Batch Search / Rename ── */
+        .batch-dropdown { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 60; max-height: 280px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 1rem; box-shadow: 0 14px 28px rgba(15,23,42,0.12); }
+        .batch-item { width: 100%; text-align: left; padding: 0.7rem 0.85rem; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
+        .batch-item:hover, .batch-item:focus-visible { background: #eef2ff; outline: none; }
+        .batch-item:last-child { border-bottom: none; }
+        .batch-create { background: #ecfdf5; color: #047857; }
+        .batch-create:hover, .batch-create:focus-visible { background: #d1fae5; }
+        .batch-muted { color: #64748b; font-size: 11px; }
+        .rename-batch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .delete-batch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        /* ── Delete Batch Modal ── */
+        .danger-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.58); backdrop-filter: blur(1px); z-index: 90; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+        .danger-modal-card { width: 100%; max-width: 680px; background: #fff; border: 1px solid #fecaca; border-radius: 1.25rem; overflow: hidden; box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35); }
+
+        /* ── Progress Bar ── */
+        .progress-bar { display: flex; align-items: flex-start; justify-content: center; overflow-x: auto; padding: 0 0.5rem; }
+        .progress-step { display: flex; flex-direction: column; align-items: center; position: relative; flex: 1; min-width: 0; }
+        .progress-step .step-circle {
+            width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 900; z-index: 2; transition: all 0.3s; flex-shrink: 0;
+            border: 3px solid #cbd5e1;
+            background: white; color: #94a3b8;
+        }
+        .progress-step.completed .step-circle { background: #10b981; border-color: #10b981; color: white; }
+        .progress-step.active .step-circle { background: #3b82f6; border-color: #3b82f6; color: white; animation: pulse-ring 1.8s ease-in-out infinite; }
+        @keyframes pulse-ring { 0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,.4)} 50%{box-shadow:0 0 0 8px rgba(59,130,246,0)} }
+        .progress-step .step-label { margin-top: 6px; font-size: 9px; font-weight: 800; text-transform: uppercase; color: #94a3b8; text-align: center; line-height: 1.15; letter-spacing: 0.02em; max-width: 72px; word-wrap: break-word; }
+        .progress-step.completed .step-label { color: #10b981; }
+        .progress-step.active .step-label { color: #3b82f6; }
+        .progress-step .step-user { margin-top: 2px; font-size: 9px; font-weight: 900; color: #6366f1; }
+        /* Connector lines */
+        .progress-step:not(:last-child)::after {
+            content: ''; position: absolute; top: 15px; left: calc(50% + 18px); right: calc(-50% + 18px);
+            height: 3px; background: #e2e8f0; z-index: 1; transition: background 0.3s;
+        }
+        .progress-step.completed:not(:last-child)::after { background: #10b981; }
+        .progress-step .step-label-short { display: none; }
+        @media (max-width: 480px) {
+            .progress-step .step-circle { width: 26px; height: 26px; font-size: 9px; border-width: 2px; }
+            .progress-step .step-label { font-size: 7px; max-width: 52px; }
+            .progress-step .step-label-full { display: none; }
+            .progress-step .step-label-short { display: block; }
+            .progress-step:not(:last-child)::after { top: 12px; left: calc(50% + 15px); right: calc(-50% + 15px); }
+        }
+
+        /* ── Image Lightbox ── */
+        #imageLightbox {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 120;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            padding: 1rem;
+        }
+        #imageLightbox.open {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+        .lightbox-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.9);
+            -webkit-tap-highlight-color: transparent;
+        }
+        .lightbox-content {
+            position: relative;
+            z-index: 1;
+            width: min(96vw, 1200px);
+            max-height: 96vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            transform: translateY(14px) scale(0.98);
+            opacity: 0;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+        #imageLightbox.open .lightbox-content {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+        #lightboxImage {
+            max-width: 90vw;
+            max-height: 84vh;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            border-radius: 0.75rem;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .lightbox-caption {
+            color: rgba(241, 245, 249, 0.95);
+            text-align: center;
+            font-size: 0.82rem;
+            font-weight: 700;
+            line-height: 1.35;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+            max-width: min(88vw, 980px);
+            word-break: break-word;
+            min-height: 1.1rem;
+        }
+        .lightbox-close {
+            position: absolute;
+            top: -0.2rem;
+            right: max(0rem, calc(5vw - 0.5rem));
+            width: 42px;
+            height: 42px;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.38);
+            background: rgba(15, 23, 42, 0.58);
+            color: #fff;
+            font-size: 1.75rem;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+        .lightbox-close:hover,
+        .lightbox-close:focus-visible {
+            background: rgba(30, 41, 59, 0.92);
+            transform: scale(1.06);
+            outline: none;
+        }
+        .lightbox-open-body {
+            overflow: hidden;
+            touch-action: none;
+        }
+        @media (max-width: 640px) {
+            #lightboxImage { max-height: 78vh; }
+            .lightbox-close {
+                top: -0.35rem;
+                right: 0;
+                width: 40px;
+                height: 40px;
+            }
+            .lightbox-caption { font-size: 0.75rem; }
+        }
+    </style>
 </head>
 <body class="bg-slate-50 min-h-screen pb-20 font-sans text-slate-900">
-<header class="bg-[#1e1b4b] text-white p-4 sticky top-0 z-50 shadow-xl">
-<div class="max-w-4xl mx-auto flex justify-between items-center">
-<h1 class="text-xl font-black tracking-tighter flex items-center gap-2 italic">
-<i data-lucide="zap" class="text-yellow-400"></i> OL PIPELINE
-</h1>
-<div class="flex items-center gap-3">
-<select id="userSelect" class="bg-slate-800 text-xs border-none rounded-lg px-3 py-2 outline-none text-white font-bold">
-<option value="EM">EM</option><option value="VJ">VJ</option><option value="CV">CV</option>
-</select>
-<div id="statusDot" class="w-3 h-3 bg-red-500 rounded-full shadow-[0_0_8px_red]"></div>
-</div>
-</div>
-</header>
-<main class="max-w-3xl mx-auto p-4 space-y-6 mt-4">
 
-<!-- HEADER INFO -->
-<section class="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-<div>
-<div class="flex items-center justify-between gap-2 ml-1 mb-1">
-<label class="text-[10px] font-black uppercase text-slate-400">Experiment Batch ID</label>
-<div class="flex items-center gap-2">
-<button id="renameBatchBtn" type="button" class="rename-batch-btn inline-flex items-center gap-1 text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-lg hover:bg-indigo-100 transition" disabled>
-<i data-lucide="pencil" size="12"></i> Rename Batch
-</button>
-<button id="deleteBatchBtn" type="button" class="delete-batch-btn inline-flex items-center gap-1 text-[10px] font-black uppercase text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded-lg hover:bg-red-100 transition" disabled>
-<i data-lucide="trash-2" size="12"></i> Delete Batch
-</button>
-</div>
-</div>
-<div class="relative">
-<input type="text" id="batchId" autocomplete="off" placeholder="e.g. rOPC-V4-1W-20260414" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition" />
-<div id="batchDropdown" class="batch-dropdown hidden"></div>
-</div>
-<p id="batchFeedback" class="mt-2 text-[11px] font-bold text-slate-500 hidden"></p>
-<div class="mt-2 text-[10px] text-slate-500 leading-relaxed bg-indigo-50 border border-indigo-100 rounded-xl p-2">
-<span class="font-black text-indigo-700">Format example:</span>
-<code class="font-black text-indigo-800">rOPC-V4-1W-20260414</code><br />
-<span><span class="font-bold">rOPC</span>=rat OPCs, <span class="font-bold">V4</span>=mould version, <span class="font-bold">1W</span>=well format, <span class="font-bold">20260414</span>=date (YYYYMMDD)</span>
-</div>
-</div>
-<div>
-<label class="text-[10px] font-black uppercase text-slate-400 ml-1">Experiment Notes</label>
-<textarea id="notes" rows="4" placeholder="e.g., 5K stiffness, dose response experiment, ..." class="w-full bg-slate-50 p-4 rounded-2xl text-sm font-bold outline-none border-2 border-indigo-100 focus:border-indigo-500 transition resize-y"></textarea>
-</div>
-</div>
-</section>
+    <header class="bg-[#1e1b4b] text-white p-4 sticky top-0 z-50 shadow-xl">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-black tracking-tighter flex items-center gap-2 italic">
+                <i data-lucide="zap" class="text-yellow-400"></i> OL PIPELINE
+            </h1>
+            <div class="flex items-center gap-3">
+                <select id="userSelect" class="bg-slate-800 text-xs border-none rounded-lg px-3 py-2 outline-none text-white font-bold">
+                    <option value="EM">EM</option><option value="VJ">VJ</option><option value="CV">CV</option>
+                </select>
+                <div id="statusDot" class="w-3 h-3 bg-red-500 rounded-full shadow-[0_0_8px_red]"></div>
+            </div>
+        </div>
+    </header>
 
-<!-- STEP PROGRESS BAR -->
-<section id="progressBarSection" class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200" style="display:none;">
-<div id="progressBar" class="progress-bar"></div>
-</section>
+    <main class="max-w-3xl mx-auto p-4 space-y-6 mt-4">
 
-<div id="gates" class="space-y-6">
-<!-- Gate HTML blocks (Gate 1 to Gate 7) as per your original code, omitted here for brevity -->
-<!-- Make sure to include all your gate sections from your initial code -->
-<!-- For example: -->
-<!-- Gate 1 -->
-<div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-blue-500 gate-card" data-gate="1">
-<!-- ... -->
-</div>
-<!-- Gate 2 -->
-<div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-purple-500 gate-card" data-gate="2">
-<!-- ... -->
-</div>
-<!-- Continue for all gates up to Gate 7 -->
-</div>
+        <!-- HEADER INFO -->
+        <section class="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <div class="flex items-center justify-between gap-2 ml-1 mb-1">
+                        <label class="text-[10px] font-black uppercase text-slate-400">Experiment Batch ID</label>
+                        <div class="flex items-center gap-2">
+                            <button id="renameBatchBtn" type="button" class="rename-batch-btn inline-flex items-center gap-1 text-[10px] font-black uppercase text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded-lg hover:bg-indigo-100 transition" disabled>
+                                <i data-lucide="pencil" size="12"></i> Rename Batch
+                            </button>
+                            <button id="deleteBatchBtn" type="button" class="delete-batch-btn inline-flex items-center gap-1 text-[10px] font-black uppercase text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded-lg hover:bg-red-100 transition" disabled>
+                                <i data-lucide="trash-2" size="12"></i> Delete Batch
+                            </button>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <input type="text" id="batchId" autocomplete="off" placeholder="e.g. rOPC-V4-1W-20260414" class="w-full bg-slate-50 p-4 rounded-2xl text-xl font-black outline-none border-2 border-transparent focus:border-indigo-500 transition">
+                        <div id="batchDropdown" class="batch-dropdown hidden"></div>
+                    </div>
+                    <p id="batchFeedback" class="mt-2 text-[11px] font-bold text-slate-500 hidden"></p>
+                    <div class="mt-2 text-[10px] text-slate-500 leading-relaxed bg-indigo-50 border border-indigo-100 rounded-xl p-2">
+                        <span class="font-black text-indigo-700">Format example:</span>
+                        <code class="font-black text-indigo-800">rOPC-V4-1W-20260414</code><br>
+                        <span><span class="font-bold">rOPC</span>=rat OPCs, <span class="font-bold">V4</span>=mould version, <span class="font-bold">1W</span>=well format, <span class="font-bold">20260414</span>=date (YYYYMMDD)</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black uppercase text-slate-400 ml-1">Experiment Notes</label>
+                    <textarea id="notes" rows="4" placeholder="e.g., 5K stiffness, dose response experiment, ..." class="w-full bg-slate-50 p-4 rounded-2xl text-sm font-bold outline-none border-2 border-indigo-100 focus:border-indigo-500 transition resize-y"></textarea>
+                </div>
+            </div>
+        </section>
 
-<button id="exportPdfBtn" onclick="generateLabReport()" class="w-full py-6 bg-white border-4 border-slate-900 text-slate-900 rounded-[2.5rem] font-black uppercase tracking-[0.2em] text-xs shadow-2xl mt-12 hover:bg-slate-900 hover:text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed">Export Lab Report (PDF)</button>
+        <!-- STEP PROGRESS BAR -->
+        <section id="progressBarSection" class="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200" style="display:none;">
+            <div id="progressBar" class="progress-bar"></div>
+        </section>
 
-</main>
+        <div id="gates" class="space-y-6">
+            
+            <!-- GATE 1 -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-blue-500 gate-card" data-gate="1">
+                <div class="flex justify-between items-start mb-4">
+                    <h2 class="text-lg font-black italic">1. Micropillar Fabrication</h2>
+                    <span class="status-pill text-[10px] font-black bg-slate-100 px-3 py-1 rounded-full text-slate-400">PENDING</span>
+                </div>
+                <label class="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl cursor-pointer hover:bg-blue-50 transition mb-4">
+                    <input type="checkbox" class="gate-check w-6 h-6 rounded-full accent-blue-600">
+                    <span class="font-bold text-slate-700 text-sm">Pillars verified at 10x magnification</span>
+                </label>
+                <div class="space-y-3">
+                    <input type="file" class="hidden img-input" accept="image/*" multiple>
+                    <button onclick="this.previousElementSibling.click()" class="w-full py-4 bg-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-500 flex items-center justify-center gap-2 hover:bg-slate-200 transition">
+                        <i data-lucide="camera" size="16"></i> Pillars Before Coating
+                    </button>
+                    <div class="img-preview grid grid-cols-3 gap-3"></div>
+                </div>
+                <!-- Reference Images -->
+                <div class="ref-section">
+                    <h4 class="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="book-open" size="12"></i> Reference Images</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-[9px] font-black text-emerald-600 uppercase">✓ Good to Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="1-good"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="1-good">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-emerald-50 rounded-xl text-[8px] font-black uppercase text-emerald-400 border border-dashed border-emerald-200 hover:bg-emerald-100 transition">+ Add Good Example</button>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black text-red-500 uppercase">✗ Do Not Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="1-bad"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="1-bad">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-red-50 rounded-xl text-[8px] font-black uppercase text-red-400 border border-dashed border-red-200 hover:bg-red-100 transition">+ Add Bad Example</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-<!-- Delete Batch Modal -->
-<div id="deleteBatchModal" class="danger-modal-backdrop hidden" aria-hidden="true">
-<div class="danger-modal-card">
-<div class="px-6 py-4 border-b border-red-200 bg-red-50">
-<h3 class="text-lg font-black text-red-700 flex items-center gap-2"><i data-lucide="triangle-alert" size="18"></i> Delete Batch</h3>
-</div>
-<div class="p-6 space-y-4 text-sm font-semibold text-slate-700">
-<p>You are about to permanently delete:</p>
-<div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-<div class="text-[11px] uppercase font-black text-slate-500">Batch ID</div>
-<div id="deleteBatchCurrentId" class="text-base font-black text-slate-900 break-all">—</div>
-</div>
-<div class="bg-red-50 border border-red-200 rounded-xl p-3">
-<div class="text-[11px] uppercase font-black text-red-600 mb-1">This will delete</div>
-<ul class="list-disc list-inside text-[12px] text-red-700 space-y-1">
-<li>All gate data (1–7)</li>
-<li>All image references stored in this batch document</li>
-<li>All notes and timestamps</li>
-<li>Complete experiment record for this batch</li>
-</ul>
-<p class="mt-2 text-[12px] font-black text-red-700">This action cannot be undone.</p>
-</div>
-<div>
-<label for="deleteBatchConfirmInput" class="block text-[11px] uppercase font-black text-slate-500 mb-1">To confirm, type the exact batch ID</label>
-<input id="deleteBatchConfirmInput" type="text" autocomplete="off" class="w-full bg-slate-50 p-3 rounded-xl text-sm font-black outline-none border-2 border-slate-200 focus:border-red-400 transition" placeholder="Type batch ID exactly">
-<p id="deleteBatchError" class="mt-2 text-[11px] font-black text-red-600 hidden"></p>
-</div>
-<p class="mt-2 text-[11px] text-slate-500">After ID verification, you'll be asked one final “Are you sure?” confirmation.</p>
-</div>
-<div class="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50">
-<button id="deleteBatchCancelBtn" type="button" class="px-4 py-2 rounded-lg text-[11px] font-black uppercase border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 transition">Cancel</button>
-<button id="deleteBatchConfirmBtn" type="button" class="px-4 py-2 rounded-lg text-[11px] font-black uppercase text-white bg-red-600 hover:bg-red-700 transition inline-flex items-center gap-1"><i data-lucide="trash-2" size="14"></i> Delete Permanently</button>
-</div>
-</div>
-</div>
+            <!-- GATE 2 (No countdown timer, updated text & checkpoints) -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-purple-500 gate-card" data-gate="2">
+                <h2 class="text-lg font-black italic mb-4">2. Functionalisation & Coating</h2>
+                <label class="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl cursor-pointer mb-3">
+                    <input type="checkbox" class="gate-check w-6 h-6 accent-purple-600">
+                    <span class="font-bold text-sm">Functionalised / PDL + Laminin coated</span>
+                </label>
+                <label class="flex items-center gap-3 bg-slate-50 p-4 rounded-2xl cursor-pointer mb-4">
+                    <input type="checkbox" class="gate-check w-6 h-6 accent-purple-600">
+                    <span class="font-bold text-sm">Pillars verified at 10x magnification</span>
+                </label>
+                <div class="space-y-3">
+                    <input type="file" class="hidden img-input" accept="image/*" multiple>
+                    <button onclick="this.previousElementSibling.click()" class="w-full py-4 bg-slate-50 rounded-2xl text-[10px] font-black uppercase text-slate-400 flex items-center justify-center gap-2 border-2 border-dashed">
+                        <i data-lucide="image" size="14"></i> Pillars After Coating
+                    </button>
+                    <div class="img-preview grid grid-cols-3 gap-3"></div>
+                </div>
+                <!-- Reference Images -->
+                <div class="ref-section">
+                    <h4 class="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="book-open" size="12"></i> Reference Images</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-[9px] font-black text-emerald-600 uppercase">✓ Good to Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="2-good"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="2-good">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-emerald-50 rounded-xl text-[8px] font-black uppercase text-emerald-400 border border-dashed border-emerald-200 hover:bg-emerald-100 transition">+ Add Good Example</button>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black text-red-500 uppercase">✗ Do Not Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="2-bad"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="2-bad">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-red-50 rounded-xl text-[8px] font-black uppercase text-red-400 border border-dashed border-red-200 hover:bg-red-100 transition">+ Add Bad Example</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-purple-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-<!-- Lightbox for image preview -->
-<div id="imageLightbox" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Image preview">
-<div class="lightbox-overlay" data-lightbox-close="true"></div>
-<div class="lightbox-content" role="document">
-<button class="lightbox-close" type="button" aria-label="Close image preview">×</button>
-<img id="lightboxImage" src="" alt="Full-size uploaded image" />
-<div class="lightbox-caption" id="lightboxCaption" aria-live="polite"></div>
-</div>
-</div>
+            <!-- GATE 3 -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-amber-500 gate-card" data-gate="3">
+                <h2 class="text-lg font-black italic mb-4">3. Isolation Reagents</h2>
+                <label class="flex items-center gap-4 bg-amber-50 p-6 rounded-3xl cursor-pointer border-2 border-transparent hover:border-amber-200 transition">
+                    <input type="checkbox" class="gate-check w-8 h-8 accent-amber-600">
+                    <span class="font-black text-amber-900 leading-tight">Papain, Serum PBS, & Media: Prepared & Sterile Filtered?</span>
+                </label>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-amber-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-<script>
-/* Firebase configuration and initialization */
-const firebaseConfig = {
-apiKey: "AIzaSyB_uwp8zHg3SX0pzgWYkLrtnmlb0Ag1Gb0",
-authDomain: "biomech-eaf84.firebaseapp.com",
-projectId: "biomech-eaf84",
-storageBucket: "biomech-eaf84.firebasestorage.app",
-messagingSenderId: "395514379581",
-appId: "1:395514379581:web:ac639064af3dba0a995954"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const storage = firebase.storage();
+            <!-- GATE 4 (ADVANCED) -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-emerald-600 gate-card" data-gate="4">
+                <h2 class="text-lg font-black italic mb-4 uppercase tracking-tight">4. OPC Isolation (MACS)</h2>
+                <label class="flex items-center gap-3 bg-emerald-50 p-4 rounded-2xl cursor-pointer mb-4 border border-emerald-100">
+                    <input type="checkbox" class="gate-check w-6 h-6 accent-emerald-600">
+                    <span class="font-bold text-sm text-emerald-900">OPC isolation and MACS completed</span>
+                </label>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="bg-slate-50 p-4 rounded-2xl">
+                        <label class="text-[9px] font-black text-slate-400 uppercase">Total Pups</label>
+                        <input type="number" id="pupInput" value="1" class="w-full bg-transparent text-2xl font-black outline-none text-emerald-800">
+                    </div>
+                    <div class="bg-emerald-900 text-white p-4 rounded-2xl text-center">
+                        <label class="text-[9px] font-black text-emerald-400 uppercase">Yield Per Pup (Post)</label>
+                        <div id="cellsPerPup" class="text-2xl font-mono font-black mt-1 text-white">0</div>
+                    </div>
+                </div>
 
-let batchId = null;
-let batchUnsubscribe = null;
-let batchListCache = [];
-let isBatchListLoading = false;
-let isRenameInProgress = false;
-let isDeleteInProgress = false;
+                <!-- Phase A -->
+                <div class="p-5 rounded-3xl bg-slate-50 border border-slate-100 mb-4">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase mb-3 flex items-center gap-2">
+                        <span class="w-2 h-2 bg-slate-300 rounded-full"></span> PRE-MACS
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <input type="number" id="preCount" placeholder="Count" class="p-3 rounded-xl border-none font-bold text-sm bg-white">
+                        <input type="number" id="preViability" placeholder="Viability %" class="p-3 rounded-xl border-none font-bold text-sm bg-white">
+                    </div>
+                    <input type="file" class="hidden img-input" accept="image/*" multiple data-slot="pre">
+                    <button onclick="this.previousElementSibling.click()" class="w-full py-3 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-emerald-500 transition flex items-center justify-center gap-2"><i data-lucide="camera" size="14"></i> Cell Count Image Before MACS</button>
+                    <div class="img-preview grid grid-cols-3 gap-2 mt-3" data-slot="pre"></div>
+                </div>
 
-function getLegacyStiffness(data) {
-if (!data) return "";
-for (let i = 1; i <= 7; i++) {
-if (data["g" + i] && typeof data["g" + i].stiffness === "string" && data["g" + i].stiffness.trim()) return data["g" + i].stiffness.trim();
-}
-return "";
-}
+                <!-- Phase B -->
+                <div class="p-5 rounded-3xl bg-emerald-50 border border-emerald-100 mb-4">
+                    <h3 class="text-[10px] font-black text-emerald-400 uppercase mb-3 flex items-center gap-2">
+                        <span class="w-2 h-2 bg-emerald-400 rounded-full"></span> POST-MACS (O4+)
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <input type="number" id="postCount" placeholder="Count" class="p-3 rounded-xl border-none font-bold text-sm bg-white">
+                        <input type="number" id="postViability" placeholder="Viability %" class="p-3 rounded-xl border-none font-bold text-sm bg-white">
+                    </div>
+                    <input type="file" class="hidden img-input" accept="image/*" multiple data-slot="post">
+                    <button onclick="this.previousElementSibling.click()" class="w-full py-3 bg-white border border-emerald-100 rounded-xl text-[9px] font-black uppercase text-emerald-600 hover:bg-emerald-100 transition flex items-center justify-center gap-2"><i data-lucide="camera" size="14"></i> Cell Count Image After MACS</button>
+                    <div class="img-preview grid grid-cols-3 gap-2 mt-3" data-slot="post"></div>
+                </div>
 
-function getBatchNotes(data) {
-if (!data) return "";
-if (typeof data.notes === "string" && data.notes.trim()) return data.notes.trim();
-for (let i = 1; i <= 7; i++) {
-if (data["g" + i] && typeof data["g" + i].notes === "string" && data["g" + i].notes.trim()) return data["g" + i].notes.trim();
-}
-return getLegacyStiffness(data);
-}
+                <div class="mt-6 flex justify-between items-center text-[10px] text-slate-300 italic font-bold">
+                    <span class="gate-meta">NOT SYNCED</span>
+                    <button class="sync-btn bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-function syncBatchMetaFields(data) {
-document.getElementById("notes").value = getBatchNotes(data || {});
-}
+            <!-- BRANCHING LOGIC AFTER GATE 4 -->
+            <div id="pathSelector" class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-violet-500">
+                <h2 class="text-lg font-black italic mb-2 text-violet-900">Choose Post-Isolation Path</h2>
+                <p class="text-xs text-slate-400 mb-4">Will you seed directly to pillars, expand in flask, or both?</p>
+                <div class="space-y-3">
+                    <label class="path-option flex items-center gap-4 bg-violet-50 p-5 rounded-2xl cursor-pointer border-2 border-transparent hover:border-violet-300 transition">
+                        <input type="radio" name="seedPath" value="direct" class="w-5 h-5 accent-violet-600">
+                        <span class="font-bold text-sm text-violet-900">Direct Seeding</span>
+                    </label>
+                    <label class="path-option flex items-center gap-4 bg-violet-50 p-5 rounded-2xl cursor-pointer border-2 border-transparent hover:border-violet-300 transition">
+                        <input type="radio" name="seedPath" value="expand" class="w-5 h-5 accent-violet-600">
+                        <span class="font-bold text-sm text-violet-900">Expansion</span>
+                    </label>
+                    <label class="path-option flex items-center gap-4 bg-violet-50 p-5 rounded-2xl cursor-pointer border-2 border-transparent hover:border-violet-300 transition">
+                        <input type="radio" name="seedPath" value="both" class="w-5 h-5 accent-violet-600">
+                        <span class="font-bold text-sm text-violet-900">Both</span>
+                    </label>
+                </div>
+                <button id="savePathBtn" class="mt-4 w-full bg-violet-600 text-white py-4 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">SAVE PATH CHOICE</button>
+            </div>
 
-// Batch search / select / load
-const batchInputEl = document.getElementById("batchId");
-const batchDropdownEl = document.getElementById("batchDropdown");
-const batchFeedbackEl = document.getElementById("batchFeedback");
-const renameBatchBtn = document.getElementById("renameBatchBtn");
-const deleteBatchBtn = document.getElementById("deleteBatchBtn");
-const deleteBatchModalEl = document.getElementById("deleteBatchModal");
-const deleteBatchCurrentIdEl = document.getElementById("deleteBatchCurrentId");
-const deleteBatchConfirmInputEl = document.getElementById("deleteBatchConfirmInput");
-const deleteBatchErrorEl = document.getElementById("deleteBatchError");
-const deleteBatchCancelBtn = document.getElementById("deleteBatchCancelBtn");
-const deleteBatchConfirmBtn = document.getElementById("deleteBatchConfirmBtn");
-const imageLightboxEl = document.getElementById("imageLightbox");
-const lightboxImageEl = document.getElementById("lightboxImage");
-const lightboxCaptionEl = document.getElementById("lightboxCaption");
-const lightboxCloseBtnEl = imageLightboxEl ? imageLightboxEl.querySelector(".lightbox-close") : null;
+            <!-- PATH TRACKING -->
+            <div id="pathLabel" class="text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.3em] py-4 hidden">Seeding & Expansion</div>
 
-let lastLightboxTrigger = null;
-let isLightboxOpen = false;
+            <!-- GATE 5 -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-rose-500 gate-card hidden" data-gate="5" id="gate5">
+                <h2 class="text-lg font-black italic mb-4">5. Control Seeding</h2>
+                <label class="flex items-center gap-4 bg-rose-50 p-6 rounded-3xl cursor-pointer">
+                    <input type="checkbox" class="gate-check w-6 h-6 accent-rose-600">
+                    <span class="font-bold text-rose-900">Seeded 2 wells of 4-well control plate</span>
+                </label>
+                <div class="mt-4">
+                    <input type="file" class="hidden img-input" accept="image/*" multiple>
+                    <button onclick="this.previousElementSibling.click()" class="w-full bg-slate-50 py-3 rounded-xl text-[10px] font-black uppercase text-slate-400 border-2 border-dashed flex items-center justify-center gap-2"><i data-lucide="camera" size="14"></i> Cell Morphology Images</button>
+                    <div class="img-preview grid grid-cols-4 gap-2 mt-2"></div>
+                </div>
+                <!-- Reference Images -->
+                <div class="ref-section">
+                    <h4 class="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="book-open" size="12"></i> Reference Images</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-[9px] font-black text-emerald-600 uppercase">✓ Good to Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="5-good"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="5-good">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-emerald-50 rounded-xl text-[8px] font-black uppercase text-emerald-400 border border-dashed border-emerald-200 hover:bg-emerald-100 transition">+ Add Good Example</button>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black text-red-500 uppercase">✗ Do Not Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="5-bad"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="5-bad">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-red-50 rounded-xl text-[8px] font-black uppercase text-red-400 border border-dashed border-red-200 hover:bg-red-100 transition">+ Add Bad Example</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-rose-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-function normalizeBatchId(v) {
-return String(v || "").trim();
-}
-function normalizeBatchIdForCompare(v) {
-return normalizeBatchId(v).toLowerCase();
-}
-function sanitizeFileName(name) {
-return String(name || "image").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "") || "image";
-}
-function sanitizeSlotName(slot) {
-return String(slot || "main").toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
-}
-function buildGateImagePath(batch, gate, slot, fileName) {
-const safeBatch = normalizeBatchId(batch);
-const safeGate = String(gate || "").replace(/[^0-9]/g, "");
-const safeSlot = sanitizeSlotName(slot);
-const safeFile = sanitizeFileName(fileName);
-return `ol/${safeBatch}/g${safeGate}/${safeSlot}/${Date.now()}_${safeFile}`;
-}
+            <!-- GATE 6 -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-indigo-500 gate-card hidden" data-gate="6" id="gate6">
+                <h2 class="text-lg font-black italic mb-2">6. Flask Expansion Log</h2>
+                <div id="dailyLogs" class="space-y-3 mb-6"></div>
+                <button onclick="addDailyRecord()" class="w-full border-2 border-dashed border-indigo-100 py-4 rounded-3xl text-[10px] font-black uppercase text-indigo-400 hover:bg-indigo-50 transition">+ Add Day Progress</button>
+                <label class="mt-6 flex items-center gap-4 bg-indigo-50 p-5 rounded-2xl cursor-pointer">
+                    <input type="checkbox" class="gate-check w-5 h-5 accent-indigo-600">
+                    <span class="text-xs font-bold text-indigo-900 italic underline">Cells healthy / Ready for lifting?</span>
+                </label>
+                <!-- Reference Images -->
+                <div class="ref-section">
+                    <h4 class="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1"><i data-lucide="book-open" size="12"></i> Reference Images</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-[9px] font-black text-emerald-600 uppercase">✓ Good to Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="6-good"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="6-good">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-emerald-50 rounded-xl text-[8px] font-black uppercase text-emerald-400 border border-dashed border-emerald-200 hover:bg-emerald-100 transition">+ Add Good Example</button>
+                        </div>
+                        <div>
+                            <span class="text-[9px] font-black text-red-500 uppercase">✗ Do Not Proceed</span>
+                            <div class="ref-grid mt-1" data-ref="6-bad"></div>
+                            <input type="file" class="hidden ref-input" accept="image/*" multiple data-ref="6-bad">
+                            <button onclick="this.previousElementSibling.click()" class="mt-1 w-full py-2 bg-red-50 rounded-xl text-[8px] font-black uppercase text-red-400 border border-dashed border-red-200 hover:bg-red-100 transition">+ Add Bad Example</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-indigo-600 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
 
-function normalizeStoragePath(rawPathOrUrl) {
-if (!rawPathOrUrl) return "";
-let raw = String(rawPathOrUrl).trim();
-if (!raw) return "";
-if (raw.startsWith("ol/")) return raw;
-if (raw.startsWith("gs://")) {
-raw = raw.replace(/^gs:\/\/[^/]+\/?/, "");
-return raw.replace(/^\/+/, "");
-}
-const marker = "/o/";
-const markerIndex = raw.indexOf(marker);
-if (markerIndex !== -1) {
-let encodedPart = raw.slice(markerIndex + marker.length);
-const queryIdx = encodedPart.indexOf("?");
-if (queryIdx !== -1) encodedPart = encodedPart.slice(0, queryIdx);
-const hashIdx = encodedPart.indexOf("#");
-if (hashIdx !== -1) encodedPart = encodedPart.slice(0, hashIdx);
-let decoded = encodedPart;
-try { decoded = decodeURIComponent(decoded); } catch (_) {}
-try { decoded = decodeURIComponent(decoded); } catch (_) {}
-return decoded.replace(/^\/+/, "");
-}
-try {
-const urlObj = new URL(raw);
-const path = decodeURIComponent(urlObj.pathname || "");
-const olIdx = path.indexOf("/ol/");
-if (olIdx !== -1) return path.slice(olIdx + 1).replace(/^\/+/, "");
-} catch (_) {}
-let fallback = raw.replace(/^\/+/, "");
-try { fallback = decodeURIComponent(fallback); } catch (_) {}
-return fallback;
-}
+            <!-- GATE 7 -->
+            <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border-t-8 border-slate-900 gate-card hidden" data-gate="7" id="gate7">
+                <h2 class="text-lg font-black italic mb-6">7. Lift & Final Seeding</h2>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-3 p-4 bg-slate-50 rounded-2xl cursor-pointer font-bold text-xs"><input type="checkbox" class="gate-check"> Lifted with Accutase @ 37°C</label>
+                    <label class="flex items-center gap-3 p-4 bg-slate-100 rounded-2xl cursor-pointer font-bold text-xs"><input type="checkbox" class="gate-check"> Counts verified & Seeded to Pillars</label>
+                </div>
+                <div class="mt-6 pt-4 border-t border-slate-50 flex justify-between items-center">
+                    <span class="gate-meta text-[10px] font-bold text-slate-300 italic">NOT SYNCED</span>
+                    <button class="sync-btn bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition">RECORD</button>
+                </div>
+            </div>
+        </div>
 
-// Additional functions like isPathInBatchGate, resetGateCard, setBatchFeedback, setRenameButtonState, setDeleteButtonState, setDeleteDialogError, closeDeleteBatchDialog, openDeleteBatchDialog, deleteBatchPermanently, resetBoardUI, parseLegacyTimeToMs, getBatchPreviewMeta, hideBatchDropdown, showBatchDropdown, renderBatchDropdown, fetchBatchList, subscribeToBatch, getFriendlyErrorMessage, renameBatch, resolveBatchIdCase, selectBatchFromInput, setupBatchInputHandlers, getLightboxFocusableElements, getImageCaptionFromThumb, openLightbox, closeLightbox, delFile, delRefFile, loadAllReferenceImages, etc., follow and are integrated below.
+        <button id="exportPdfBtn" onclick="generateLabReport()" class="w-full py-6 bg-white border-4 border-slate-900 text-slate-900 rounded-[2.5rem] font-black uppercase tracking-[0.2em] text-xs shadow-2xl mt-12 hover:bg-slate-900 hover:text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed">Export Lab Report (PDF)</button>
 
----
+    </main>
 
-### Complete JavaScript (continued with functions and core logic):
+    <div id="deleteBatchModal" class="danger-modal-backdrop hidden" aria-hidden="true">
+        <div class="danger-modal-card">
+            <div class="px-6 py-4 border-b border-red-200 bg-red-50">
+                <h3 class="text-lg font-black text-red-700 flex items-center gap-2"><i data-lucide="triangle-alert" size="18"></i> Delete Batch</h3>
+            </div>
+            <div class="p-6 space-y-4 text-sm font-semibold text-slate-700">
+                <p>You are about to permanently delete:</p>
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <div class="text-[11px] uppercase font-black text-slate-500">Batch ID</div>
+                    <div id="deleteBatchCurrentId" class="text-base font-black text-slate-900 break-all">—</div>
+                </div>
 
-```js
-// Utility functions and handlers
-function resetGateCard(card) {
-    if (!card) return;
-    card.querySelectorAll(".gate-check").forEach(c => c.checked = false);
-    card.querySelectorAll(".img-preview").forEach(p => p.innerHTML = "");
-    const meta = card.querySelector(".gate-meta");
-    if (meta) meta.innerText = "NOT SYNCED";
-    const status = card.querySelector(".status-pill");
-    if (status) {
-        status.innerText = "PENDING";
-        status.className = "status-pill text-[10px] font-black bg-slate-100 px-3 py-1 rounded-full text-slate-400";
-    }
-}
+                <div class="bg-red-50 border border-red-200 rounded-xl p-3">
+                    <div class="text-[11px] uppercase font-black text-red-600 mb-1">This will delete</div>
+                    <ul class="list-disc list-inside text-[12px] text-red-700 space-y-1">
+                        <li>All gate data (1–7)</li>
+                        <li>All image references stored in this batch document</li>
+                        <li>All notes and timestamps</li>
+                        <li>Complete experiment record for this batch</li>
+                    </ul>
+                    <p class="mt-2 text-[12px] font-black text-red-700">This action cannot be undone.</p>
+                </div>
 
-function setBatchFeedback(message, tone = "neutral") {
-    if (!message) {
-        document.getElementById("batchFeedback").classList.add("hidden");
-        document.getElementById("batchFeedback").textContent = "";
-        return;
-    }
-    const toneClass = tone === "error" ? "text-red-600" : (tone === "success" ? "text-emerald-600" : "text-slate-500");
-    document.getElementById("batchFeedback").className = `mt-2 text-[11px] font-bold ${toneClass}`;
-    document.getElementById("batchFeedback").textContent = message;
-}
+                <div>
+                    <label for="deleteBatchConfirmInput" class="block text-[11px] uppercase font-black text-slate-500 mb-1">To confirm, type the exact batch ID</label>
+                    <input id="deleteBatchConfirmInput" type="text" autocomplete="off" class="w-full bg-slate-50 p-3 rounded-xl text-sm font-black outline-none border-2 border-slate-200 focus:border-red-400 transition" placeholder="Type batch ID exactly">
+                    <p id="deleteBatchError" class="mt-2 text-[11px] font-black text-red-600 hidden"></p>
+                </div>
 
-function setRenameButtonState(enabled, label) {
-    const btn = document.getElementById("renameBatchBtn");
-    if (!btn) return;
-    btn.disabled = !enabled || isRenameInProgress || isDeleteInProgress;
-    btn.innerHTML = `<i data-lucide="pencil" size="12"></i> ${label || "Rename Batch"}`;
-    if (typeof lucide !== "undefined") lucide.createIcons();
-}
+                <p class="text-[11px] text-slate-500">After ID verification, you'll be asked one final “Are you sure?” confirmation.</p>
+            </div>
+            <div class="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50">
+                <button id="deleteBatchCancelBtn" type="button" class="px-4 py-2 rounded-lg text-[11px] font-black uppercase border border-slate-300 text-slate-700 bg-white hover:bg-slate-100 transition">Cancel</button>
+                <button id="deleteBatchConfirmBtn" type="button" class="px-4 py-2 rounded-lg text-[11px] font-black uppercase text-white bg-red-600 hover:bg-red-700 transition inline-flex items-center gap-1"><i data-lucide="trash-2" size="14"></i> Delete Permanently</button>
+            </div>
+        </div>
+    </div>
 
-function setDeleteButtonState(enabled, label) {
-    const btn = document.getElementById("deleteBatchBtn");
-    if (!btn) return;
-    btn.disabled = !enabled || isRenameInProgress || isDeleteInProgress;
-    btn.innerHTML = `<i data-lucide="trash-2" size="12"></i> ${label || "Delete Batch"}`;
-    if (typeof lucide !== "undefined") lucide.createIcons();
-}
+    <div id="imageLightbox" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Image preview">
+        <div class="lightbox-overlay" data-lightbox-close="true"></div>
+        <div class="lightbox-content" role="document">
+            <button class="lightbox-close" type="button" aria-label="Close image preview">×</button>
+            <img id="lightboxImage" src="" alt="Full-size uploaded image">
+            <div class="lightbox-caption" id="lightboxCaption" aria-live="polite"></div>
+        </div>
+    </div>
 
-function setDeleteDialogError(message) {
-    const el = document.getElementById("deleteBatchError");
-    if (!el) return;
-    if (!message) {
-        el.classList.add("hidden");
-        el.textContent = "";
-    } else {
-        el.classList.remove("hidden");
-        el.textContent = message;
-    }
-}
-
-function closeDeleteBatchDialog() {
-    if (isDeleteInProgress) return;
-    const el = document.getElementById("deleteBatchModal");
-    if (!el) return;
-    el.classList.add("hidden");
-    el.setAttribute("aria-hidden", "true");
-    setDeleteDialogError("");
-    document.getElementById("deleteBatchConfirmInput").value = "";
-}
-
-function openDeleteBatchDialog() {
-    if (!batchId) return alert("Load a batch before deleting.");
-    document.getElementById("deleteBatchCurrentId").textContent = batchId;
-    document.getElementById("deleteBatchConfirmInput").value = "";
-    setDeleteDialogError("");
-    const el = document.getElementById("deleteBatchModal");
-    el.classList.remove("hidden");
-    el.setAttribute("aria-hidden", "false");
-    setTimeout(() => document.getElementById("deleteBatchConfirmInput").focus(), 0);
-}
-
-async function deleteBatchPermanently() {
-    if (!batchId) { closeDeleteBatchDialog(); return alert("No batch selected."); }
-    if (isDeleteInProgress) return;
-    const deletingId = normalizeBatchId(batchId);
-    const typedId = normalizeBatchId(document.getElementById("deleteBatchConfirmInput").value);
-    if (!typedId || typedId !== deletingId) {
-        setDeleteDialogError("Batch ID doesn't match. Please type the exact ID.");
-        return;
-    }
-    const finalSure = confirm(`Are you sure you want to permanently delete batch "${deletingId}"?\n\nThis action cannot be undone.`);
-    if (!finalSure) {
-        setDeleteDialogError("Deletion cancelled. Batch remains unchanged.");
-        return;
-    }
-    isDeleteInProgress = true;
-    setRenameButtonState(false, "Rename Batch");
-    setDeleteButtonState(false, "Deleting...");
-    setDeleteDialogError("");
-    try {
-        if (batchUnsubscribe) {
-            batchUnsubscribe();
-            batchUnsubscribe = null;
-        }
-        await db.collection("ol_pro").doc(deletingId).delete();
-        batchId = null;
-        document.getElementById("batchId").value = "";
-        resetBoardUI();
-        syncBatchMetaFields({});
-        updateProgressBar({});
-        document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
-        batchListCache = batchListCache.filter(b => normalizeBatchIdForCompare(b.id) !== normalizeBatchIdForCompare(deletingId));
-        await fetchBatchList(true);
-        closeDeleteBatchDialog();
-        setBatchFeedback(`Batch ${deletingId} has been deleted`, "success");
-        renderBatchDropdown("");
-        showBatchDropdown();
-        alert(`Batch ${deletingId} has been deleted ✅`);
-    } catch (err) {
-        const friendly = getFriendlyErrorMessage(err);
-        console.error("[deleteBatch] Delete failed", { deletingId, error: err });
-        setBatchFeedback(`Delete failed: ${friendly}`, "error");
-        setDeleteDialogError(`Delete failed: ${friendly}`);
-    } finally {
-        isDeleteInProgress = false;
-        setRenameButtonState(Boolean(batchId), "Rename Batch");
-        setDeleteButtonState(Boolean(batchId), "Delete Batch");
-    }
-}
-
-function resetBoardUI() {
-    document.querySelectorAll(".gate-card").forEach(resetGateCard);
-    document.getElementById("pupInput").value = 1;
-    document.getElementById("preCount").value = "";
-    document.getElementById("preViability").value = "";
-    document.getElementById("postCount").value = "";
-    document.getElementById("postViability").value = "";
-    document.getElementById("cellsPerPup").innerText = "0";
-    document.querySelectorAll('input[name="seedPath"]').forEach(r => r.checked = false);
-    document.querySelectorAll('.path-option').forEach(o => o.classList.remove('border-violet-500', 'bg-violet-100'));
-    applyPathChoice(null);
-    _lastBatchData = {};
-}
-
-function parseLegacyTimeToMs(str) {
-    if (!str || typeof str !== "string") return 0;
-    const direct = Date.parse(str);
-    if (!Number.isNaN(direct)) return direct;
-    const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if (!m) return 0;
-    const d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, y = parseInt(m[3], 10);
-    const h = parseInt(m[4], 10), mi = parseInt(m[5], 10), s = parseInt(m[6] || "0", 10);
-    return new Date(y, mo, d, h, mi, s).getTime();
-}
-
-function getBatchPreviewMeta(data) {
-    let bestMs = 0;
-    let bestText = "";
-    let bestBy = "";
-    const updatedAt = data && data.updatedAt;
-    if (updatedAt && typeof updatedAt.toMillis === "function") {
-        bestMs = updatedAt.toMillis();
-        bestText = new Date(bestMs).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-        bestBy = data.updatedBy || "";
-    }
-    for (let i = 1; i <= 7; i++) {
-        const g = data && data["g" + i];
-        if (!g || !g.time) continue;
-        const ms = parseLegacyTimeToMs(g.time);
-        if (ms >= bestMs) {
-            bestMs = ms;
-            bestText = ms
-                ? new Date(ms).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-                : g.time;
-            bestBy = g.by || bestBy;
-        }
-    }
-    if (!bestText) bestText = "Never updated";
-    return { ms: bestMs, text: bestText, by: bestBy || "—" };
-}
-
-function hideBatchDropdown() {
-    document.getElementById("batchDropdown").classList.add("hidden");
-}
-function showBatchDropdown() {
-    document.getElementById("batchDropdown").classList.remove("hidden");
-}
-function renderBatchDropdown(query = "") {
-    // Your existing code to render batch dropdown based on cache
-}
-async function fetchBatchList(force = false) {
-    // Your existing code to fetch batch list from Firestore
-}
-function subscribeToBatch(id) {
-    // Your existing code to subscribe to Firestore batch document
-}
-function getFriendlyErrorMessage(err) {
-    // Your existing code to parse error messages
-}
-async function renameBatch() {
-    // Your existing code for renaming batch
-}
-function resolveBatchIdCase(rawId) {
-    // Your existing code for resolving case
-}
-function selectBatchFromInput(rawId) {
-    // Your existing code to select batch
-}
-function setupBatchInputHandlers() {
-    // Your existing code to setup event handlers
-}
-
-// --- 8. Lightbox functions ---
-function getLightboxFocusableElements() {
-    return Array.from(document.querySelectorAll('#imageLightbox button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
-        .filter(el => !el.disabled && el.offsetParent !== null);
-}
-function getImageCaptionFromThumb(imgEl) {
-    // Your existing code
-}
-function openLightbox(imageSrc, caption = "") {
-    // Your existing code
-}
-function closeLightbox() {
-    // Your existing code
-}
-document.addEventListener("click", (e) => {
-    // Your existing code
-});
-document.addEventListener("keydown", (e) => {
-    // Your existing code
-});
-
-// --- 9. Image upload and reference functions ---
-document.querySelectorAll(".img-input").forEach(inp => {
-    inp.onchange = async e => {
-        // Your existing image upload code
-    };
-});
-function createThumb(container, url, name, path) {
-    // Your existing code
-}
-async function delFile(btn) {
-    // Your existing code
-}
-document.querySelectorAll(".ref-input").forEach(inp => {
-    inp.onchange = async e => {
-        // Your existing reference image upload code
-    };
-});
-async function delRefFile(btn, path) {
-    // Your existing code
-}
-async function loadAllReferenceImages() {
-    // Your existing code
-}
-
-// --- 10. Sync logic ---
-document.querySelectorAll(".sync-btn").forEach(btn => {
-    btn.onclick = async () => {
-        // Your existing sync code
-    };
-});
-
-// --- 11. Rendering board and gates ---
-function renderBoard(data) {
-    // Your existing rendering code
-}
-function getVisibleGates(path) {
-    // Your existing code
-}
-function isGateComplete(data, gateNum) {
-    // Your existing code
-}
-function sectionHeading(text, color) {
-    // Your existing code
-}
-function statusBadge(done) {
-    // Your existing code
-}
-function addHeader() {
-    // Your existing code
-}
-function addFooter() {
-    // Your existing code
-}
-function updateProgressBar(data) {
-    // Your existing code
-}
-function applyPathChoice(choice) {
-    // Your existing code
-}
-function getFriendlyErrorMessage(err) {
-    // Your existing code
-}
-function resetGateCard(card) {
-    // Your existing code
-}
-function parseLegacyTimeToMs(str) {
-    // Your existing code
-}
-function getBatchPreviewMeta(data) {
-    // Your existing code
-}
-function hideBatchDropdown() {
-    // Your existing code
-}
-function showBatchDropdown() {
-    // Your existing code
-}
-function renderBatchDropdown(query = "") {
-    // Your existing code
-}
-async function fetchBatchList(force = false) {
-    // Your existing code
-}
-function subscribeToBatch(id) {
-    // Your existing code
-}
-function getLightboxFocusableElements() {
-    // Your existing code
-}
-function getImageCaptionFromThumb(imgEl) {
-    // Your existing code
-}
-function openLightbox(imageSrc, caption = "") {
-    // Your existing code
-}
-function closeLightbox() {
-    // Your existing code
-}
-function delFile(btn) {
-    // Your existing code
-}
-function delRefFile(btn, path) {
-    // Your existing code
-}
-async function loadAllReferenceImages() {
-    // Your existing code
-}
-
-// --- 12. Main initialization ---
-window.onload = async () => {
-    lucide.createIcons();
-    setupBatchInputHandlers();
-    setDeleteButtonState(false, "Delete Batch");
-    await fetchBatchList(false);
-    renderBatchDropdown("");
-    hideBatchDropdown();
-};
-
-// --- 13. generateLabReport() with image handling ---
-async function generateLabReport() {
-    const exportBtn = document.getElementById("exportPdfBtn");
-    const originalExportBtnText = exportBtn ? exportBtn.textContent : "";
-
-    function setExportButtonStatus(text) {
-        if (!exportBtn) return;
-        exportBtn.textContent = text;
-    }
-    if (exportBtn) {
-        exportBtn.disabled = true;
-        setExportButtonStatus("Generating PDF…");
-    }
-    try {
-        if (!batchId || !_lastBatchData) {
-            alert("Please load a batch first before exporting.");
-            return;
-        }
-
-        const data = _lastBatchData;
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ unit: "mm", format: "a4" });
-        const pw = doc.internal.pageSize.getWidth();
-        const ph = doc.internal.pageSize.getHeight();
-        const ml = 20, mr = 20, mt = 25, mb = 25;
-        let y = mt;
-        let pageNum = 1;
-
-        const C = {
-            primary: [30, 27, 75],
-            accent: [79, 70, 229],
-            green: [16, 185, 129],
-            red: [239, 68, 68],
-            amber: [217, 119, 6],
-            slate: [100, 116, 139],
-            slateL: [148, 163, 184],
-            bg: [248, 250, 252],
-            white: [255, 255, 255],
-            black: [15, 23, 42],
-            border: [226, 232, 240],
+    <script>
+        // --- 1. FIREBASE CONFIG ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyB_uwp8zHg3SX0pzgWYkLrtnmlb0Ag1Gb0",
+            authDomain: "biomech-eaf84.firebaseapp.com",
+            projectId: "biomech-eaf84",
+            storageBucket: "biomech-eaf84.firebasestorage.app",
+            messagingSenderId: "395514379581",
+            appId: "1:395514379581:web:ac639064af3dba0a995954"
         };
 
-        // Helper: load image as Data URL (improved)
-        async function getImageDataForPdf(imageObj, options) {
-            if (!imageObj) return { dataUrl: null, sourceUrl: null, error: "missing_image_object" };
-            const timeoutMs = (options && options.timeoutMs) || 30000;
-            const imageLabel = imageObj.name || imageObj.path || imageObj.url || "unnamed-image";
-            const normalizedPath = normalizeStoragePath(imageObj.path || imageObj.url || "");
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+        let batchId = null;
+        let batchUnsubscribe = null;
+        let batchListCache = [];
+        let isBatchListLoading = false;
+        let isRenameInProgress = false;
+        let isDeleteInProgress = false;
 
-            // Try getBlob() first
-            if (normalizedPath && storage.ref) {
-                try {
-                    const ref = storage.ref().child(normalizedPath);
-                    if (ref.getBlob) {
-                        const blob = await Promise.race([
-                            ref.getBlob(),
-                            new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs))
-                        ]);
-                        const reader = new FileReader();
-                        const dataUrl = await new Promise((res, rej) => {
-                            reader.onload = () => res(reader.result);
-                            reader.onerror = () => rej(new Error("FileReader failed"));
-                            reader.readAsDataURL(blob);
-                        });
-                        if (dataUrl && dataUrl.startsWith("data:image/")) {
-                            console.log("[pdf-export][image] loaded via getBlob", { imageLabel });
-                            return { dataUrl, sourceUrl: normalizedPath, error: null };
-                        }
-                    }
-                } catch (err) {
-                    console.warn("[pdf-export][image] getBlob() failed, trying download URL", { imageLabel, error: err?.message });
-                }
+        function getLegacyStiffness(data) {
+            if (!data) return "";
+            for (let i = 1; i <= 7; i++) {
+                const g = data["g" + i];
+                if (g && typeof g.stiffness === "string" && g.stiffness.trim()) return g.stiffness.trim();
             }
-
-            // Fallback: load via image URL + canvas
-            try {
-                const freshUrl = await storage.ref().child(normalizedPath).getDownloadURL();
-                const image = new Image();
-                image.crossOrigin = "anonymous";
-                await new Promise((resolve, reject) => {
-                    image.onload = () => resolve();
-                    image.onerror = () => reject(new Error("Image load error"));
-                    image.src = freshUrl + (freshUrl.includes("?") ? "&" : "?") + "_cb=" + Date.now();
-                });
-                const canvas = document.createElement("canvas");
-                canvas.width = image.width;
-                canvas.height = image.height;
-                const ctx = canvas.getContext("2d");
-                ctx.drawImage(image, 0, 0);
-                const dataUrl = canvas.toDataURL("image/png");
-                return { dataUrl, sourceUrl: freshUrl, error: null };
-            } catch (e) {
-                console.warn("[pdf-export][image] load via URL failed", { imageLabel, error: e?.message });
-            }
-
-            return { dataUrl: null, sourceUrl: normalizedPath || imageObj.url, error: "all_strategies_failed" };
+            return "";
         }
 
-        // Embeds images, waits for load
-        async function embedImages(images, maxW) {
-            if (!images || images.length === 0) return;
-            maxW = maxW || 45;
-            const gap = 4;
-            const pw = doc.internal.pageSize.getWidth();
-            const ph = doc.internal.pageSize.getHeight();
-            const ml = 20;
-            const yStart = y;
-
-            const perRow = Math.max(1, Math.min(3, Math.floor((pw - ml * 2) / (maxW + gap))));
-            const imgH = maxW * 0.75;
-
-            imageLoadState.total += images.length;
-            updateImageLoadProgress();
-
-            for (let i = 0; i < images.length; i++) {
-                if (i % perRow === 0) ensureSpace(imgH + 12);
-                const col = i % perRow;
-                const x = ml + col * (maxW + gap);
-                const imageObj = images[i];
-
-                const result = await getImageDataForPdf(imageObj, { timeoutMs: 30000 });
-                imageLoadState.completed += 1;
-                if (result.dataUrl) imageLoadState.succeeded += 1;
-                else imageLoadState.failed += 1;
-
-                try {
-                    if (result.dataUrl) {
-                        const format = result.dataUrl.startsWith("data:image/png") ? "PNG" : "JPEG";
-                        doc.addImage(result.dataUrl, format, x, y, maxW, imgH);
-                    } else {
-                        const reason = classifyImageLoadError(result.error);
-                        doc.setFillColor(...C.bg);
-                        doc.rect(x, y, maxW, imgH, "F");
-                        doc.setDrawColor(...C.border);
-                        doc.rect(x, y, maxW, imgH);
-                        doc.setFontSize(6);
-                        doc.setTextColor(...C.slateL);
-                        doc.text(["Image unavailable", `(${reason})`], x + 3, y + (imgH / 2) - 1);
-                        console.warn("[pdf-export][image] fallback used", {
-                            imageLabel: imageObj?.name || imageObj?.path?.split("/").pop(),
-                            reason,
-                            error: result.error,
-                            sourceUrl: result.sourceUrl,
-                        });
-                    }
-                    // Draw border
-                    doc.setDrawColor(...C.border);
-                    doc.setLineWidth(0.3);
-                    doc.rect(x, y, maxW, imgH);
-                } catch (renderErr) {
-                    console.error("[pdf-export][image] render failed", {
-                        imageLabel: imageObj?.name || imageObj?.path?.split("/").pop(),
-                        error: renderErr?.message || String(renderErr),
-                    });
-                    // fallback placeholder
-                    doc.setFillColor(...C.bg);
-                    doc.rect(x, y, maxW, imgH, "F");
-                    doc.setDrawColor(...C.border);
-                    doc.rect(x, y, maxW, imgH);
-                    doc.setFontSize(6);
-                    doc.setTextColor(...C.slateL);
-                    doc.text(["Image unavailable", "(render error)"], x + 3, y + (imgH / 2) - 1);
-                }
-
-                // Caption
-                const caption = imageObj?.name || imageObj?.path?.split("/").pop() || "";
-                if (caption && caption !== "Image Log") {
-                    doc.setFontSize(5.5);
-                    doc.setFont("helvetica", "italic");
-                    doc.setTextColor(...C.slateL);
-                    const capLines = doc.splitTextToSize(caption, maxW);
-                    doc.text(capLines.slice(0, 2), x, y + imgH + 3.5);
-                }
-
-                if (i === perRow - 1 || i === images.length - 1) {
-                    y += imgH + 8;
-                }
+        function getBatchNotes(data) {
+            if (!data) return "";
+            if (typeof data.notes === "string" && data.notes.trim()) return data.notes.trim();
+            for (let i = 1; i <= 7; i++) {
+                const g = data["g" + i];
+                if (g && typeof g.notes === "string" && g.notes.trim()) return g.notes.trim();
             }
+            return getLegacyStiffness(data);
         }
 
-        // Classify error reason
-        function classifyImageLoadError(err) {
-            if (!err) return "unknown";
-            const raw = String(err.message || err.code || err.name || err).toLowerCase();
-            if (raw.includes("timeout")) return "timeout";
-            if (raw.includes("cors") || raw.includes("taint") || raw.includes("security")) return "cors/security";
-            if (raw.includes("403") || raw.includes("unauthorized") || raw.includes("auth")) return "auth";
-            if (raw.includes("404") || raw.includes("not found")) return "not_found";
-            if (raw.includes("network")) return "network";
-            return "load_error";
+        function syncBatchMetaFields(data) {
+            document.getElementById("notes").value = getBatchNotes(data || {});
         }
 
-        // Path normalization
+        // BATCH SEARCH / SELECT / LOAD
+        const batchInputEl = document.getElementById("batchId");
+        const batchDropdownEl = document.getElementById("batchDropdown");
+        const batchFeedbackEl = document.getElementById("batchFeedback");
+        const renameBatchBtn = document.getElementById("renameBatchBtn");
+        const deleteBatchBtn = document.getElementById("deleteBatchBtn");
+        const deleteBatchModalEl = document.getElementById("deleteBatchModal");
+        const deleteBatchCurrentIdEl = document.getElementById("deleteBatchCurrentId");
+        const deleteBatchConfirmInputEl = document.getElementById("deleteBatchConfirmInput");
+        const deleteBatchErrorEl = document.getElementById("deleteBatchError");
+        const deleteBatchCancelBtn = document.getElementById("deleteBatchCancelBtn");
+        const deleteBatchConfirmBtn = document.getElementById("deleteBatchConfirmBtn");
+        const imageLightboxEl = document.getElementById("imageLightbox");
+        const lightboxImageEl = document.getElementById("lightboxImage");
+        const lightboxCaptionEl = document.getElementById("lightboxCaption");
+        const lightboxCloseBtnEl = imageLightboxEl ? imageLightboxEl.querySelector(".lightbox-close") : null;
+
+        let lastLightboxTrigger = null;
+        let isLightboxOpen = false;
+
+        function normalizeBatchId(v) {
+            return String(v || "").trim();
+        }
+
+        function normalizeBatchIdForCompare(v) {
+            return normalizeBatchId(v).toLowerCase();
+        }
+
+        function sanitizeFileName(name) {
+            return String(name || "image")
+                .replace(/[^a-zA-Z0-9._-]+/g, "_")
+                .replace(/^_+|_+$/g, "") || "image";
+        }
+
+        function sanitizeSlotName(slot) {
+            return String(slot || "main").toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+        }
+
+        function buildGateImagePath(batch, gate, slot, fileName) {
+            const safeBatch = normalizeBatchId(batch);
+            const safeGate = String(gate || "").replace(/[^0-9]/g, "");
+            const safeSlot = sanitizeSlotName(slot);
+            const safeFile = sanitizeFileName(fileName);
+            return `ol/${safeBatch}/g${safeGate}/${safeSlot}/${Date.now()}_${safeFile}`;
+        }
+
         function normalizeStoragePath(rawPathOrUrl) {
             if (!rawPathOrUrl) return "";
             let raw = String(rawPathOrUrl).trim();
             if (!raw) return "";
+
+            // Already a plain storage path
             if (raw.startsWith("ol/")) return raw;
+
+            // gs://bucket/path format
             if (raw.startsWith("gs://")) {
                 raw = raw.replace(/^gs:\/\/[^/]+\/?/, "");
                 return raw.replace(/^\/+/, "");
             }
+
+            // Firebase download URLs: .../o/<url-encoded-storage-path>?alt=media
             const marker = "/o/";
             const markerIndex = raw.indexOf(marker);
             if (markerIndex !== -1) {
@@ -812,117 +653,2024 @@ async function generateLabReport() {
                 if (queryIdx !== -1) encodedPart = encodedPart.slice(0, queryIdx);
                 const hashIdx = encodedPart.indexOf("#");
                 if (hashIdx !== -1) encodedPart = encodedPart.slice(0, hashIdx);
+
                 let decoded = encodedPart;
                 try { decoded = decodeURIComponent(decoded); } catch (_) {}
+                // Handle double-encoded data if present
                 try { decoded = decodeURIComponent(decoded); } catch (_) {}
+
                 return decoded.replace(/^\/+/, "");
             }
+
+            // Fallback for full URLs that might still contain /ol/... in pathname
             try {
                 const urlObj = new URL(raw);
                 const path = decodeURIComponent(urlObj.pathname || "");
                 const olIdx = path.indexOf("/ol/");
                 if (olIdx !== -1) return path.slice(olIdx + 1).replace(/^\/+/, "");
             } catch (_) {}
+
+            // Last-resort fallback: trim leading slash and decode when possible
             let fallback = raw.replace(/^\/+/, "");
             try { fallback = decodeURIComponent(fallback); } catch (_) {}
             return fallback;
         }
 
-        function ensureSpace(needed) {
-            if (y + needed > ph - mb) {
-                addFooter();
-                doc.addPage();
-                pageNum++;
-                y = mt;
-                addHeader();
+        function isPathInBatchGate(path, batch, gate, slot) {
+            const safeBatch = normalizeBatchId(batch);
+            const safeGate = String(gate || "").replace(/[^0-9]/g, "");
+            const safeSlot = sanitizeSlotName(slot);
+            const normalizedPath = normalizeStoragePath(path);
+
+            if (!normalizedPath || !safeBatch || !safeGate) {
+                if (String(gate || "") === "4") {
+                    console.log("[path-check] reject: missing fields", { path, normalizedPath, safeBatch, safeGate, safeSlot });
+                }
+                return false;
+            }
+
+            const expectedGatePrefix = `ol/${safeBatch}/g${safeGate}/`;
+            const expectedSlotPrefix = `${expectedGatePrefix}${safeSlot}/`;
+            const lowerPath = normalizedPath.toLowerCase();
+            const lowerGatePrefix = expectedGatePrefix.toLowerCase();
+            const lowerSlotPrefix = expectedSlotPrefix.toLowerCase();
+
+            let result = false;
+            let reason = "";
+
+            if (lowerPath.startsWith(lowerSlotPrefix)) {
+                result = true;
+                reason = "slot-prefix-match";
+            } else if (lowerPath.startsWith(lowerGatePrefix)) {
+                const remainder = lowerPath.slice(lowerGatePrefix.length);
+                const firstSeg = remainder.split("/")[0] || "";
+                const knownSlot = ["main", "pre", "post"].includes(firstSeg);
+
+                if (knownSlot) {
+                    result = firstSeg === safeSlot;
+                    reason = result ? "known-slot-match" : "known-slot-mismatch";
+                } else {
+                    // Backward compatibility for legacy images without explicit slot folders.
+                    result = true;
+                    reason = "legacy-gate-prefix-match";
+                }
+            } else {
+                result = false;
+                reason = "batch-or-gate-mismatch";
+            }
+
+            if (safeGate === "4") {
+                console.log("[path-check] Gate 4", {
+                    inputPath: path,
+                    normalizedPath,
+                    batch: safeBatch,
+                    gate: safeGate,
+                    slot: safeSlot,
+                    expectedGatePrefix,
+                    expectedSlotPrefix,
+                    result,
+                    reason
+                });
+            }
+
+            return result;
+        }
+
+        function resetGateCard(card) {
+            if (!card) return;
+            card.querySelectorAll(".gate-check").forEach(c => c.checked = false);
+            card.querySelectorAll(".img-preview").forEach(p => p.innerHTML = "");
+            const meta = card.querySelector(".gate-meta");
+            if (meta) meta.textContent = "NOT SYNCED";
+            const status = card.querySelector(".status-pill");
+            if (status) {
+                status.textContent = "PENDING";
+                status.className = "status-pill text-[10px] font-black bg-slate-100 px-3 py-1 rounded-full text-slate-400";
             }
         }
 
-        function addHeader() {
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(7);
-            doc.setTextColor(...C.slateL);
-            doc.text(`OL Pipeline — ${batchId.toUpperCase()}`, ml, 12);
-            doc.text(`Page ${pageNum}`, pw - ml, 12, { align: "right" });
-            doc.setDrawColor(...C.border);
-            doc.setLineWidth(0.3);
-            doc.line(ml, 15, pw - ml, 15);
-            y = mt;
+        function setBatchFeedback(message, tone = "neutral") {
+            if (!message) {
+                batchFeedbackEl.classList.add("hidden");
+                batchFeedbackEl.textContent = "";
+                return;
+            }
+            const toneClass = tone === "error"
+                ? "text-red-600"
+                : (tone === "success" ? "text-emerald-600" : "text-slate-500");
+            batchFeedbackEl.className = `mt-2 text-[11px] font-bold ${toneClass}`;
+            batchFeedbackEl.textContent = message;
         }
 
-        function addFooter() {
+        function setRenameButtonState(enabled, label) {
+            renameBatchBtn.disabled = !enabled || isRenameInProgress || isDeleteInProgress;
+            renameBatchBtn.innerHTML = `<i data-lucide="pencil" size="12"></i> ${label || "Rename Batch"}`;
+            if (typeof lucide !== "undefined") lucide.createIcons();
+        }
+
+        function setDeleteButtonState(enabled, label) {
+            deleteBatchBtn.disabled = !enabled || isDeleteInProgress || isRenameInProgress;
+            deleteBatchBtn.innerHTML = `<i data-lucide="trash-2" size="12"></i> ${label || "Delete Batch"}`;
+            if (typeof lucide !== "undefined") lucide.createIcons();
+        }
+
+        function setDeleteDialogError(message) {
+            if (!message) {
+                deleteBatchErrorEl.classList.add("hidden");
+                deleteBatchErrorEl.textContent = "";
+                return;
+            }
+            deleteBatchErrorEl.classList.remove("hidden");
+            deleteBatchErrorEl.textContent = message;
+        }
+
+        function closeDeleteBatchDialog() {
+            if (isDeleteInProgress) return;
+            deleteBatchModalEl.classList.add("hidden");
+            deleteBatchModalEl.setAttribute("aria-hidden", "true");
+            setDeleteDialogError("");
+            deleteBatchConfirmInputEl.value = "";
+        }
+
+        function openDeleteBatchDialog() {
+            if (!batchId) {
+                alert("Load a batch before deleting.");
+                return;
+            }
+            deleteBatchCurrentIdEl.textContent = batchId;
+            deleteBatchConfirmInputEl.value = "";
+            setDeleteDialogError("");
+            deleteBatchModalEl.classList.remove("hidden");
+            deleteBatchModalEl.setAttribute("aria-hidden", "false");
+            setTimeout(() => deleteBatchConfirmInputEl.focus(), 0);
+        }
+
+        async function deleteBatchPermanently() {
+            if (!batchId) {
+                closeDeleteBatchDialog();
+                return alert("No batch selected.");
+            }
+            if (isDeleteInProgress) return;
+
+            const deletingId = normalizeBatchId(batchId);
+            const typedId = normalizeBatchId(deleteBatchConfirmInputEl.value);
+
+            if (!typedId || typedId !== deletingId) {
+                setDeleteDialogError("Batch ID doesn't match. Please type the exact ID.");
+                return;
+            }
+
+            const finalSure = confirm(`Are you sure you want to permanently delete batch "${deletingId}"?
+
+This action cannot be undone.`);
+            if (!finalSure) {
+                setDeleteDialogError("Deletion cancelled. Batch remains unchanged.");
+                return;
+            }
+
+            isDeleteInProgress = true;
+            setRenameButtonState(false, "Rename Batch");
+            setDeleteButtonState(false, "Deleting...");
+            setDeleteDialogError("");
+
+            try {
+                if (batchUnsubscribe) {
+                    batchUnsubscribe();
+                    batchUnsubscribe = null;
+                }
+
+                await db.collection("ol_pro").doc(deletingId).delete();
+
+                batchId = null;
+                batchInputEl.value = "";
+                resetBoardUI();
+                syncBatchMetaFields({});
+                updateProgressBar({});
+                document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
+
+                batchListCache = batchListCache.filter(b => normalizeBatchIdForCompare(b.id) !== normalizeBatchIdForCompare(deletingId));
+                await fetchBatchList(true);
+
+                closeDeleteBatchDialog();
+                setBatchFeedback(`Batch ${deletingId} has been deleted`, "success");
+                renderBatchDropdown("");
+                showBatchDropdown();
+                alert(`Batch ${deletingId} has been deleted ✅`);
+            } catch (err) {
+                const friendly = getFriendlyErrorMessage(err);
+                console.error("[deleteBatch] Delete failed", { deletingId, error: err });
+                setBatchFeedback(`Delete failed: ${friendly}`, "error");
+                setDeleteDialogError(`Delete failed: ${friendly}`);
+            } finally {
+                isDeleteInProgress = false;
+                setRenameButtonState(Boolean(batchId), "Rename Batch");
+                setDeleteButtonState(Boolean(batchId), "Delete Batch");
+            }
+        }
+
+        function resetBoardUI() {
+            document.querySelectorAll(".gate-card").forEach(resetGateCard);
+            document.getElementById("pupInput").value = 1;
+            document.getElementById("preCount").value = "";
+            document.getElementById("preViability").value = "";
+            document.getElementById("postCount").value = "";
+            document.getElementById("postViability").value = "";
+            document.getElementById("cellsPerPup").innerText = "0";
+
+            document.querySelectorAll('input[name="seedPath"]').forEach(r => r.checked = false);
+            document.querySelectorAll('.path-option').forEach(o => o.classList.remove('border-violet-500', 'bg-violet-100'));
+            applyPathChoice(null);
+            _lastBatchData = {};
+        }
+
+        function parseLegacyTimeToMs(str) {
+            if (!str || typeof str !== "string") return 0;
+            const direct = Date.parse(str);
+            if (!Number.isNaN(direct)) return direct;
+            const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+            if (!m) return 0;
+            const d = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, y = parseInt(m[3], 10);
+            const h = parseInt(m[4], 10), mi = parseInt(m[5], 10), s = parseInt(m[6] || "0", 10);
+            return new Date(y, mo, d, h, mi, s).getTime();
+        }
+
+        function getBatchPreviewMeta(data) {
+            let bestMs = 0;
+            let bestText = "";
+            let bestBy = "";
+
+            const updatedAt = data && data.updatedAt;
+            if (updatedAt && typeof updatedAt.toMillis === "function") {
+                bestMs = updatedAt.toMillis();
+                bestText = new Date(bestMs).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+                bestBy = data.updatedBy || "";
+            }
+
+            for (let i = 1; i <= 7; i++) {
+                const g = data && data["g" + i];
+                if (!g || !g.time) continue;
+                const ms = parseLegacyTimeToMs(g.time);
+                if (ms >= bestMs) {
+                    bestMs = ms;
+                    bestText = ms
+                        ? new Date(ms).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                        : g.time;
+                    bestBy = g.by || bestBy;
+                }
+            }
+
+            if (!bestText) bestText = "Never updated";
+            return { ms: bestMs, text: bestText, by: bestBy || "—" };
+        }
+
+        function hideBatchDropdown() {
+            batchDropdownEl.classList.add("hidden");
+        }
+
+        function showBatchDropdown() {
+            batchDropdownEl.classList.remove("hidden");
+        }
+
+        function renderBatchDropdown(query = "") {
+            const qRaw = normalizeBatchId(query);
+            const qCmp = normalizeBatchIdForCompare(qRaw);
+            const batches = batchListCache.filter(b => !qCmp || normalizeBatchIdForCompare(b.id).includes(qCmp));
+            const exactMatch = batchListCache.some(b => normalizeBatchIdForCompare(b.id) === qCmp);
+
+            if (isBatchListLoading) {
+                showBatchDropdown();
+                batchDropdownEl.innerHTML = `<div class="p-3 text-[11px] font-bold text-slate-500">Loading batches...</div>`;
+                return;
+            }
+
+            if (!batches.length && !qRaw) {
+                showBatchDropdown();
+                batchDropdownEl.innerHTML = `<div class="p-3 text-[11px] font-bold text-slate-500">No existing batches yet.</div>`;
+                return;
+            }
+
+            let html = "";
+            batches.forEach(b => {
+                html += `
+                    <button type="button" class="batch-item" data-batch-id="${b.id}">
+                        <div class="text-[12px] font-black text-slate-800 truncate">${b.id}</div>
+                        <div class="batch-muted">Last updated: ${b.preview.text} by ${b.preview.by}</div>
+                    </button>
+                `;
+            });
+
+            if (qRaw && !exactMatch) {
+                html += `
+                    <button type="button" class="batch-item batch-create" data-create-id="${qRaw}">
+                        <div class="text-[12px] font-black">+ Create New Batch "${qRaw}"</div>
+                        <div class="batch-muted !text-emerald-700">Press Enter or click to start recording this batch.</div>
+                    </button>
+                `;
+            }
+
+            if (!html) {
+                html = `<div class="p-3 text-[11px] font-bold text-slate-500">No matching batches found.</div>`;
+            }
+
+            batchDropdownEl.innerHTML = html;
+            showBatchDropdown();
+        }
+
+        async function fetchBatchList(force = false) {
+            if (isBatchListLoading) return batchListCache;
+            if (!force && batchListCache.length) return batchListCache;
+
+            isBatchListLoading = true;
+            renderBatchDropdown(batchInputEl.value);
+            try {
+                const snap = await db.collection("ol_pro").get();
+                const rows = [];
+                snap.forEach(doc => {
+                    const data = doc.data() || {};
+                    if (data.archived === true) return;
+                    rows.push({
+                        id: doc.id,
+                        data,
+                        preview: getBatchPreviewMeta(data)
+                    });
+                });
+
+                rows.sort((a, b) => {
+                    if (b.preview.ms !== a.preview.ms) return b.preview.ms - a.preview.ms;
+                    return a.id.localeCompare(b.id);
+                });
+
+                batchListCache = rows;
+            } catch (err) {
+                console.warn("Failed to fetch batches:", err);
+                setBatchFeedback("Could not fetch existing batches right now.", "error");
+            } finally {
+                isBatchListLoading = false;
+                renderBatchDropdown(batchInputEl.value);
+            }
+            return batchListCache;
+        }
+
+        function subscribeToBatch(id) {
+            const nextId = normalizeBatchId(id);
+            if (!nextId) return;
+
+            if (batchUnsubscribe) {
+                batchUnsubscribe();
+                batchUnsubscribe = null;
+            }
+
+            batchId = nextId;
+            batchInputEl.value = nextId;
+            setBatchFeedback("", "neutral");
+            setRenameButtonState(false, "Rename Batch");
+            setDeleteButtonState(false, "Delete Batch");
+
+            batchUnsubscribe = db.collection("ol_pro").doc(batchId).onSnapshot(doc => {
+                if (doc.exists) {
+                    document.getElementById("statusDot").className = "w-3 h-3 bg-green-500 rounded-full shadow-[0_0_10px_green]";
+                    const data = doc.data() || {};
+                    syncBatchMetaFields(data);
+                    renderBoard(data);
+
+                    if (data.seedPath) {
+                        applyPathChoice(data.seedPath);
+                        const radio = document.querySelector(`input[name="seedPath"][value="${data.seedPath}"]`);
+                        if (radio) {
+                            radio.checked = true;
+                            radio.closest('.path-option')?.classList.add('border-violet-500', 'bg-violet-100');
+                        }
+                    } else {
+                        applyPathChoice(null);
+                    }
+                    setRenameButtonState(true, "Rename Batch");
+                    setDeleteButtonState(true, "Delete Batch");
+                } else {
+                    document.getElementById("statusDot").className = "w-3 h-3 bg-yellow-500 rounded-full shadow-[0_0_10px_yellow]";
+                    resetBoardUI();
+                    syncBatchMetaFields({});
+                    updateProgressBar({});
+                    setRenameButtonState(false, "Rename Batch");
+                    setDeleteButtonState(false, "Delete Batch");
+                    setBatchFeedback(`"${batchId}" is new. Start recording to create it.`, "neutral");
+                }
+            }, err => {
+                console.error("Batch snapshot error", err);
+                setBatchFeedback("Live sync error. Please retry selecting the batch.", "error");
+                document.getElementById("statusDot").className = "w-3 h-3 bg-red-500 rounded-full shadow-[0_0_10px_red]";
+            });
+
+            loadAllReferenceImages();
+        }
+
+        function getFriendlyErrorMessage(err) {
+            if (!err) return "Unknown error";
+            if (typeof err === "string") return err;
+            const code = err.code ? ` (${err.code})` : "";
+            const msg = err.message || "Unknown error";
+            return `${msg}${code}`;
+        }
+
+        async function renameBatch() {
+            if (!batchId) return alert("Load a batch before renaming.");
+            if (isRenameInProgress) return;
+
+            const oldId = batchId;
+            const proposed = prompt("Enter new batch ID", oldId);
+            if (proposed === null) return;
+
+            const newId = normalizeBatchId(proposed);
+            if (!newId) return alert("New batch ID cannot be empty.");
+            if (newId === oldId) return alert("New batch ID is the same as current ID.");
+
+            const user = document.getElementById("userSelect").value;
+            const confirmed = confirm(`Rename batch "${oldId}" to "${newId}"?
+
+This copies Firestore data only. Existing image files remain in their current Firebase Storage paths, and image references are kept unchanged.`);
+            if (!confirmed) return;
+
+            isRenameInProgress = true;
+            setRenameButtonState(false, "Renaming...");
+            setDeleteButtonState(false, "Delete Batch");
+            setBatchFeedback("Renaming batch... please wait.", "neutral");
+
+            try {
+                console.log("[renameBatch] Starting rename", { oldId, newId, user });
+                const oldRef = db.collection("ol_pro").doc(oldId);
+                const newRef = db.collection("ol_pro").doc(newId);
+                const [oldSnap, newSnap] = await Promise.all([oldRef.get(), newRef.get()]);
+
+                console.log("[renameBatch] Snapshot status", {
+                    oldExists: oldSnap.exists,
+                    newExists: newSnap.exists
+                });
+
+                if (!oldSnap.exists) throw new Error("Current batch does not exist in Firestore.");
+                if (newSnap.exists) throw new Error(`Batch ID "${newId}" already exists.`);
+
+                const oldData = oldSnap.data() || {};
+                const clonedData = JSON.parse(JSON.stringify(oldData));
+
+                clonedData.renamedFrom = oldId;
+                clonedData.updatedBy = user;
+                clonedData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+                clonedData.renamedAt = new Date().toISOString();
+                clonedData.renamedBy = user;
+
+                console.log("[renameBatch] Writing new Firestore document", { newId });
+                await newRef.set(clonedData, { merge: false });
+
+                console.log("[renameBatch] Archiving old Firestore document", { oldId, renamedTo: newId });
+                await oldRef.set({
+                    archived: true,
+                    renamedTo: newId,
+                    archivedBy: user,
+                    archivedAt: new Date().toISOString(),
+                    updatedBy: user,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+
+                batchListCache = [];
+                await fetchBatchList(true);
+                subscribeToBatch(newId);
+                hideBatchDropdown();
+
+                setBatchFeedback("Batch renamed successfully. Firestore data copied and original image paths preserved.", "success");
+                alert(`Batch renamed to ${newId} ✅`);
+                console.log("[renameBatch] Rename completed", { oldId, newId });
+            } catch (err) {
+                const friendly = getFriendlyErrorMessage(err);
+                console.error("[renameBatch] Rename failed", {
+                    oldId,
+                    newId,
+                    errorCode: err && err.code,
+                    errorMessage: err && err.message,
+                    rawError: err
+                });
+                setBatchFeedback(`Rename failed: ${friendly}`, "error");
+                alert(`Rename failed: ${friendly}`);
+            } finally {
+                isRenameInProgress = false;
+                setRenameButtonState(Boolean(batchId), "Rename Batch");
+                setDeleteButtonState(Boolean(batchId), "Delete Batch");
+            }
+        }
+
+        function resolveBatchIdCase(rawId) {
+            const normalized = normalizeBatchId(rawId);
+            if (!normalized) return "";
+            const cmp = normalizeBatchIdForCompare(normalized);
+            const existing = batchListCache.find(b => normalizeBatchIdForCompare(b.id) === cmp);
+            return existing ? existing.id : normalized;
+        }
+
+        function selectBatchFromInput(rawId) {
+            const id = resolveBatchIdCase(rawId);
+            if (!id) return;
+            subscribeToBatch(id);
+            hideBatchDropdown();
+        }
+
+        function setupBatchInputHandlers() {
+            batchInputEl.addEventListener("focus", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("click", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("input", async () => {
+                showBatchDropdown();
+                await fetchBatchList(false);
+                renderBatchDropdown(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("change", () => {
+                selectBatchFromInput(batchInputEl.value);
+            });
+
+            batchInputEl.addEventListener("keydown", async (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const entered = normalizeBatchId(batchInputEl.value);
+                    if (!entered) return;
+                    await fetchBatchList(false);
+                    selectBatchFromInput(entered);
+                } else if (e.key === "Escape") {
+                    hideBatchDropdown();
+                }
+            });
+
+            batchInputEl.addEventListener("blur", () => {
+                setTimeout(hideBatchDropdown, 160);
+            });
+
+            batchDropdownEl.addEventListener("mousedown", (e) => {
+                const batchBtn = e.target.closest("[data-batch-id]");
+                if (batchBtn) {
+                    e.preventDefault();
+                    selectBatchFromInput(batchBtn.dataset.batchId);
+                    return;
+                }
+
+                const createBtn = e.target.closest("[data-create-id]");
+                if (createBtn) {
+                    e.preventDefault();
+                    selectBatchFromInput(createBtn.dataset.createId);
+                    setBatchFeedback(`New batch "${createBtn.dataset.createId}" selected.`, "success");
+                }
+            });
+
+            renameBatchBtn.addEventListener("click", renameBatch);
+            deleteBatchBtn.addEventListener("click", openDeleteBatchDialog);
+            deleteBatchCancelBtn.addEventListener("click", closeDeleteBatchDialog);
+            deleteBatchConfirmBtn.addEventListener("click", deleteBatchPermanently);
+            deleteBatchConfirmInputEl.addEventListener("input", () => setDeleteDialogError(""));
+            deleteBatchModalEl.addEventListener("mousedown", (e) => {
+                if (e.target === deleteBatchModalEl) closeDeleteBatchDialog();
+            });
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape" && !deleteBatchModalEl.classList.contains("hidden")) {
+                    closeDeleteBatchDialog();
+                }
+            });
+        }
+
+        document.getElementById("notes").onchange = async e => {
+            if(!batchId) return;
+            const user = document.getElementById("userSelect").value;
+            await db.collection("ol_pro").doc(batchId).set({
+                notes: e.target.value.trim(),
+                updatedBy: user,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            batchListCache = [];
+        };
+
+
+        // --- BRANCHING LOGIC ---
+        function applyPathChoice(choice) {
+            const gate5 = document.getElementById("gate5");
+            const gate6 = document.getElementById("gate6");
+            const gate7 = document.getElementById("gate7");
+            const label = document.getElementById("pathLabel");
+
+            gate5.classList.add("hidden");
+            gate6.classList.add("hidden");
+            gate7.classList.add("hidden");
+            label.classList.add("hidden");
+
+            if(choice === "direct") {
+                gate5.classList.remove("hidden");
+                label.classList.remove("hidden");
+            } else if(choice === "expand") {
+                gate6.classList.remove("hidden");
+                gate7.classList.remove("hidden");
+                label.classList.remove("hidden");
+            } else if(choice === "both") {
+                gate5.classList.remove("hidden");
+                gate6.classList.remove("hidden");
+                gate7.classList.remove("hidden");
+                label.classList.remove("hidden");
+            }
+            // Reinitialize lucide icons for newly shown elements
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        document.getElementById("savePathBtn").onclick = async () => {
+            if(!batchId) return alert("Enter Batch ID first!");
+            const selected = document.querySelector('input[name="seedPath"]:checked');
+            if(!selected) return alert("Please select a path first!");
+            const user = document.getElementById("userSelect").value;
+            await db.collection("ol_pro").doc(batchId).set({
+                seedPath: selected.value,
+                updatedBy: user,
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            batchListCache = [];
+            applyPathChoice(selected.value);
+            alert("Path choice saved ✅");
+        };
+
+        // Highlight selected path option
+        document.querySelectorAll('input[name="seedPath"]').forEach(r => {
+            r.onchange = () => {
+                document.querySelectorAll('.path-option').forEach(o => o.classList.remove('border-violet-500', 'bg-violet-100'));
+                r.closest('.path-option').classList.add('border-violet-500', 'bg-violet-100');
+            };
+        });
+
+        function getLightboxFocusableElements() {
+            if (!imageLightboxEl) return [];
+            return Array.from(imageLightboxEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+                .filter(el => !el.disabled && el.offsetParent !== null);
+        }
+
+        function getImageCaptionFromThumb(imgEl) {
+            if (!imgEl) return "";
+            if (imgEl.dataset.lightboxCaption) return imgEl.dataset.lightboxCaption;
+
+            const wrap = imgEl.closest(".img-wrap");
+            const inputCaption = wrap ? wrap.querySelector("input") : null;
+            if (inputCaption && inputCaption.value.trim()) return inputCaption.value.trim();
+
+            const refWrap = imgEl.closest(".ref-thumb");
+            if (refWrap && refWrap.dataset.cloudpath) {
+                const file = refWrap.dataset.cloudpath.split("/").pop() || "";
+                return decodeURIComponent(file.replace(/^\d+_/, ""));
+            }
+
+            if (imgEl.alt && imgEl.alt.trim() && imgEl.alt.trim().toLowerCase() !== "ref") {
+                return imgEl.alt.trim();
+            }
+
+            try {
+                const srcUrl = new URL(imgEl.currentSrc || imgEl.src, window.location.href);
+                const fileName = srcUrl.pathname.split("/").pop() || "Uploaded image";
+                return decodeURIComponent(fileName);
+            } catch {
+                return "Uploaded image";
+            }
+        }
+
+        function openLightbox(imageSrc, caption = "") {
+            if (!imageLightboxEl || !lightboxImageEl) return;
+            if (!imageSrc) return;
+
+            lightboxImageEl.src = imageSrc;
+            const cleanCaption = String(caption || "").trim();
+            lightboxImageEl.alt = cleanCaption || "Full-size uploaded image";
+            if (lightboxCaptionEl) {
+                lightboxCaptionEl.textContent = cleanCaption;
+                lightboxCaptionEl.classList.toggle("hidden", !cleanCaption);
+            }
+
+            imageLightboxEl.classList.add("open");
+            imageLightboxEl.setAttribute("aria-hidden", "false");
+            document.body.classList.add("lightbox-open-body");
+            isLightboxOpen = true;
+
+            requestAnimationFrame(() => {
+                if (lightboxCloseBtnEl) lightboxCloseBtnEl.focus();
+            });
+        }
+
+        function closeLightbox() {
+            if (!imageLightboxEl || !isLightboxOpen) return;
+            imageLightboxEl.classList.remove("open");
+            imageLightboxEl.setAttribute("aria-hidden", "true");
+            document.body.classList.remove("lightbox-open-body");
+            isLightboxOpen = false;
+
+            window.setTimeout(() => {
+                if (!isLightboxOpen && lightboxImageEl) {
+                    lightboxImageEl.removeAttribute("src");
+                }
+            }, 220);
+
+            if (lastLightboxTrigger && typeof lastLightboxTrigger.focus === "function") {
+                lastLightboxTrigger.focus({ preventScroll: true });
+            }
+            lastLightboxTrigger = null;
+        }
+
+        document.addEventListener("click", (e) => {
+            const closeTrigger = e.target.closest('[data-lightbox-close="true"], .lightbox-close');
+            if (closeTrigger && isLightboxOpen) {
+                e.preventDefault();
+                closeLightbox();
+                return;
+            }
+
+            const imgTarget = e.target.closest(".img-wrap img, .ref-thumb img");
+            if (!imgTarget) return;
+
+            e.preventDefault();
+            lastLightboxTrigger = imgTarget;
+            openLightbox(imgTarget.currentSrc || imgTarget.src, getImageCaptionFromThumb(imgTarget));
+        });
+
+        document.addEventListener("keydown", (e) => {
+            if (!isLightboxOpen) return;
+
+            if (e.key === "Escape") {
+                e.preventDefault();
+                closeLightbox();
+                return;
+            }
+
+            if (e.key === "Tab") {
+                const focusables = getLightboxFocusableElements();
+                if (focusables.length === 0) {
+                    e.preventDefault();
+                    return;
+                }
+                const first = focusables[0];
+                const last = focusables[focusables.length - 1];
+                if (e.shiftKey && document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
+        });
+
+        // --- 2. THE IMAGE ENGINE ---
+        document.querySelectorAll(".img-input").forEach(inp => {
+            inp.onchange = async e => {
+                if(!batchId) return alert("Enter Batch ID first!");
+                const card = e.target.closest(".gate-card");
+                const gate = card.dataset.gate;
+                const slot = e.target.dataset.slot || "main";
+                const preview = card.querySelector(`.img-preview[data-slot="${slot}"]`) || card.querySelector(".img-preview");
+
+                for(const file of e.target.files) {
+                    const temp = document.createElement("div");
+                    temp.innerHTML = `<div class="aspect-square bg-slate-100 animate-pulse rounded-xl flex items-center justify-center text-[8px] font-black text-slate-400">UPLOADING...</div>`;
+                    preview.appendChild(temp);
+
+                    const name = "Image Log";
+                    const path = buildGateImagePath(batchId, gate, slot, file.name);
+                    const ref = storage.ref().child(path);
+
+                    console.log("[img-upload] start", { batchId, gate, slot, fileName: file.name, storagePath: path });
+
+                    try {
+                        await ref.put(file);
+                        const url = await ref.getDownloadURL();
+                        temp.remove();
+                        createThumb(preview, url, name, path);
+                        console.log("[img-upload] success", { batchId, gate, slot, storagePath: path, url });
+                    } catch(err) {
+                        console.error("[img-upload] failed", { batchId, gate, slot, storagePath: path, error: err });
+                        alert("Upload failed");
+                        temp.remove();
+                    }
+                }
+                e.target.value = "";
+            };
+        });
+
+        function createThumb(container, url, name, path) {
+            const div = document.createElement("div");
+            div.className = "img-wrap relative flex flex-col gap-1";
+            div.dataset.cloudpath = path;
+            div.innerHTML = `
+                <div class="relative overflow-hidden rounded-xl border-2 border-white shadow-sm aspect-square">
+                    <img src="${url}" alt="${name || "Uploaded image"}" class="w-full h-full object-cover cursor-zoom-in" loading="lazy">
+                    <button onclick="delFile(this)" class="del-btn opacity-0 absolute top-1 right-1 bg-black/70 text-white w-5 h-5 rounded-full text-xs flex items-center justify-center transition">×</button>
+                </div>
+                <input type="text" value="${name}" class="text-[8px] font-black uppercase text-center bg-transparent border-none outline-none text-slate-400 hover:text-indigo-600 truncate px-1">
+            `;
+            container.appendChild(div);
+        }
+
+        async function delFile(btn) {
+            const wrap = btn.closest("[data-cloudpath]");
+            if(confirm("Delete from Cloud?")) {
+                try {
+                    await storage.ref().child(wrap.dataset.cloudpath).delete();
+                    wrap.remove();
+                } catch(err) { alert("Error deleting"); }
+            }
+        }
+
+        // --- 3. REFERENCE IMAGE ENGINE ---
+        document.querySelectorAll(".ref-input").forEach(inp => {
+            inp.onchange = async e => {
+                const refSlot = e.target.dataset.ref; // e.g. "1-good", "2-bad"
+                const grid = document.querySelector(`.ref-grid[data-ref="${refSlot}"]`);
+
+                for(const file of e.target.files) {
+                    const temp = document.createElement("div");
+                    temp.className = "ref-thumb";
+                    temp.innerHTML = `<div class="aspect-square bg-slate-100 animate-pulse rounded-xl flex items-center justify-center text-[7px] font-black text-slate-400">...</div>`;
+                    grid.appendChild(temp);
+
+                    const path = `ol/references/${refSlot}/${Date.now()}_${file.name}`;
+                    const ref = storage.ref().child(path);
+
+                    try {
+                        await ref.put(file);
+                        const url = await ref.getDownloadURL();
+                        temp.innerHTML = `
+                            <img src="${url}" alt="Reference image" class="cursor-zoom-in" loading="lazy">
+                            <button onclick="delRefFile(this, '${path}')" class="del-btn">×</button>
+                        `;
+                        temp.dataset.cloudpath = path;
+                        // Save ref to Firestore (shared collection)
+                        await db.collection("ol_references").add({ slot: refSlot, url: url, path: path, uploadedAt: new Date().toISOString() });
+                    } catch(err) { alert("Ref upload failed"); temp.remove(); }
+                }
+                e.target.value = "";
+            };
+        });
+
+        async function delRefFile(btn, path) {
+            if(!confirm("Delete reference image?")) return;
+            try {
+                await storage.ref().child(path).delete();
+                // Remove from Firestore
+                const snap = await db.collection("ol_references").where("path", "==", path).get();
+                snap.forEach(doc => doc.ref.delete());
+                btn.closest(".ref-thumb").remove();
+            } catch(err) { alert("Error deleting ref image"); }
+        }
+
+        async function loadAllReferenceImages() {
+            try {
+                const snap = await db.collection("ol_references").get();
+                // Clear all ref grids first
+                document.querySelectorAll(".ref-grid").forEach(g => g.innerHTML = "");
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const grid = document.querySelector(`.ref-grid[data-ref="${d.slot}"]`);
+                    if(grid) {
+                        const thumb = document.createElement("div");
+                        thumb.className = "ref-thumb";
+                        thumb.dataset.cloudpath = d.path;
+                        thumb.innerHTML = `
+                            <img src="${d.url}" alt="Reference image" class="cursor-zoom-in" loading="lazy">
+                            <button onclick="delRefFile(this, '${d.path}')" class="del-btn">×</button>
+                        `;
+                        grid.appendChild(thumb);
+                    }
+                });
+            } catch(err) { console.warn("Could not load references:", err); }
+        }
+
+        // --- 4. SYNC LOGIC ---
+        document.querySelectorAll(".sync-btn").forEach(btn => {
+            btn.onclick = async () => {
+                if(!batchId) return alert("Batch ID empty");
+                const card = btn.closest(".gate-card");
+                if(!card) return;
+                const gateNum = card.dataset.gate;
+                const user = document.getElementById("userSelect").value;
+                
+                const notesValue = document.getElementById("notes").value.trim();
+                let data = {
+                    by: user, 
+                    time: new Date().toLocaleString(),
+                    checks: Array.from(card.querySelectorAll(".gate-check")).map(c=>c.checked),
+                    notes: notesValue
+                };
+
+                // Capture photos from all slots (enforce batch/gate-scoped storage paths)
+                const previews = card.querySelectorAll(".img-preview");
+                previews.forEach(p => {
+                    const slotName = p.dataset.slot || "main";
+                    const rawItems = Array.from(p.children).map(wrap => ({
+                        url: wrap.querySelector("img") ? wrap.querySelector("img").src : "",
+                        name: wrap.querySelector("input") ? wrap.querySelector("input").value : "",
+                        path: wrap.dataset.cloudpath || ""
+                    }));
+
+                    const validItems = rawItems.filter(item => isPathInBatchGate(item.path, batchId, gateNum, slotName));
+                    if (validItems.length !== rawItems.length) {
+                        console.warn("[sync] dropped non-batch-scoped images", {
+                            batchId,
+                            gateNum,
+                            slotName,
+                            dropped: rawItems.filter(item => !isPathInBatchGate(item.path, batchId, gateNum, slotName)).map(item => item.path)
+                        });
+                    }
+                    data[`imgs_${slotName}`] = validItems;
+                });
+
+                if(gateNum == "4") {
+                    data.pups = document.getElementById("pupInput").value;
+                    data.pre = { c: document.getElementById("preCount").value, v: document.getElementById("preViability").value };
+                    data.post = { c: document.getElementById("postCount").value, v: document.getElementById("postViability").value };
+                    data.cpp = document.getElementById("cellsPerPup").innerText;
+                    console.log("[gate4-sync] payload", {
+                        batchId,
+                        gateNum,
+                        prePaths: (data.imgs_pre || []).map(i => i.path),
+                        postPaths: (data.imgs_post || []).map(i => i.path)
+                    });
+                }
+
+                console.log("[sync] writing Firestore", {
+                    batchId,
+                    gateNum,
+                    imagePaths: Object.keys(data)
+                        .filter(k => k.startsWith("imgs_"))
+                        .flatMap(k => (data[k] || []).map(i => i.path))
+                });
+
+                await db.collection("ol_pro").doc(batchId).set({ ["g"+gateNum]: data, notes: notesValue, updatedBy: user, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                batchListCache = [];
+                alert("Gate " + gateNum + " Recorded ✅");
+            };
+        });
+
+        // --- 5. RENDERER ---
+        function renderBoard(data) {
+            // Hard reset first to prevent stale UI from previous batch (critical for image isolation)
+            document.querySelectorAll(".gate-card").forEach(resetGateCard);
+            document.getElementById("pupInput").value = 1;
+            document.getElementById("preCount").value = "";
+            document.getElementById("preViability").value = "";
+            document.getElementById("postCount").value = "";
+            document.getElementById("postViability").value = "";
+            document.getElementById("cellsPerPup").innerText = "0";
+
+            Object.keys(data).forEach(key => {
+                if(key === "seedPath") return; // skip meta
+                const n = key.replace("g", "");
+                const card = document.querySelector(`[data-gate="${n}"]`);
+                if(!card) return;
+                const g = data[key];
+                if(!g || !g.checks) return;
+
+                if(card.querySelector(".gate-meta")) card.querySelector(".gate-meta").innerText = `Last action: ${g.by} | ${g.time}`;
+                if(card.querySelector(".status-pill")) {
+                    card.querySelector(".status-pill").innerText = "SYNCED";
+                    card.querySelector(".status-pill").className = "status-pill text-[10px] font-black bg-emerald-100 text-emerald-600 px-3 py-1 rounded-full uppercase";
+                }
+
+                const checks = card.querySelectorAll(".gate-check");
+                g.checks.forEach((v, i) => { if(checks[i]) checks[i].checked = v; });
+
+                card.querySelectorAll(".img-preview").forEach(p => {
+                    p.innerHTML = "";
+                    const slotName = p.dataset.slot || "main";
+                    const rawImgs = g[`imgs_${slotName}`] || [];
+                    const batchScopedImgs = rawImgs.filter(o => isPathInBatchGate(o.path, batchId, n, slotName));
+
+                    if (batchScopedImgs.length !== rawImgs.length) {
+                        console.warn("[render] skipped non-batch-scoped images", {
+                            batchId,
+                            gate: n,
+                            slot: slotName,
+                            skipped: rawImgs.filter(o => !isPathInBatchGate(o.path, batchId, n, slotName)).map(o => o.path)
+                        });
+                    }
+
+                    if (n === "4") {
+                        console.log("[gate4-render] images", {
+                            batchId,
+                            slot: slotName,
+                            paths: batchScopedImgs.map(o => o.path)
+                        });
+                    }
+
+                    batchScopedImgs.forEach(o => createThumb(p, o.url, o.name, o.path));
+                });
+
+                if(n == "4") {
+                    document.getElementById("pupInput").value = g.pups || 1;
+                    document.getElementById("preCount").value = g.pre?.c || "";
+                    document.getElementById("preViability").value = g.pre?.v || "";
+                    document.getElementById("postCount").value = g.post?.c || "";
+                    document.getElementById("postViability").value = g.post?.v || "";
+                    document.getElementById("cellsPerPup").innerText = g.cpp || "0";
+                }
+            });
+        }
+
+        // --- 6. HELPERS ---
+        document.addEventListener("input", () => {
+             const pups = parseFloat(document.getElementById("pupInput").value) || 1;
+             const post = parseFloat(document.getElementById("postCount").value) || 0;
+             document.getElementById("cellsPerPup").innerText = Math.round(post/pups).toLocaleString();
+        });
+
+        function addDailyRecord() {
+            const cont = document.getElementById("dailyLogs");
+            const d = document.createElement("div");
+            d.className = "flex gap-3 items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-50";
+            d.innerHTML = `
+                <span class="text-[9px] font-black italic text-indigo-300">D${cont.children.length+1}</span>
+                <input type="text" placeholder="Morphology / Obs..." class="flex-1 bg-transparent border-none text-[11px] font-bold outline-none">
+                <button onclick="this.parentElement.remove()" class="text-slate-300">×</button>
+            `;
+            cont.appendChild(d);
+        }
+
+        // --- 7. PROGRESS BAR ---
+        const GATE_DEFS = [
+            { num: 1, label: "Micropillars", short: "Micro" },
+            { num: 2, label: "Coating",      short: "Coat" },
+            { num: 3, label: "Reagents",     short: "Reag" },
+            { num: 4, label: "OPC Isolation", short: "OPC" },
+            { num: 5, label: "Direct Seed",  short: "Seed" },
+            { num: 6, label: "Expansion",    short: "Exp" },
+            { num: 7, label: "Lift & Seed",  short: "Lift" },
+        ];
+
+        // Which gates to show based on path
+        function getVisibleGates(path) {
+            if (path === "direct")  return [1,2,3,4,5];
+            if (path === "expand")  return [1,2,3,4,6,7];
+            if (path === "both")    return [1,2,3,4,5,6,7];
+            return [1,2,3,4]; // no path chosen yet
+        }
+
+        // Determine completion: a gate is "done" if its data has at least one checkbox checked or it simply exists with a `by` field
+        function isGateComplete(data, gateNum) {
+            const g = data["g" + gateNum];
+            if (!g || !g.checks) return false;
+            return g.checks.some(v => v); // at least one check ticked
+        }
+
+        let _lastBatchData = null;
+
+        function updateProgressBar(data) {
+            _lastBatchData = data;
+            const path = data && data.seedPath ? data.seedPath : null;
+            const visibleNums = getVisibleGates(path);
+            const bar = document.getElementById("progressBar");
+            const section = document.getElementById("progressBarSection");
+
+            section.style.display = "";
+            bar.innerHTML = "";
+
+            let foundActive = false;
+
+            visibleNums.forEach((num, idx) => {
+                const def = GATE_DEFS.find(d => d.num === num);
+                const done = data ? isGateComplete(data, num) : false;
+                const isActive = !done && !foundActive;
+                if (isActive) foundActive = true;
+
+                const step = document.createElement("div");
+                step.className = "progress-step" + (done ? " completed" : (isActive ? " active" : ""));
+
+                const user = (data && data["g" + num] && data["g" + num].by) ? data["g" + num].by : "";
+
+                step.innerHTML = `
+                    <div class="step-circle">${done ? "✓" : num}</div>
+                    <div class="step-label step-label-full">${def.label}</div>
+                    <div class="step-label step-label-short">${def.short}</div>
+                    ${user ? `<div class="step-user">${user}</div>` : `<div class="step-user" style="color:#cbd5e1">—</div>`}
+                `;
+                bar.appendChild(step);
+            });
+        }
+
+        // Patch renderBoard to also update progress bar
+        const _origRenderBoard = renderBoard;
+        renderBoard = function(data) {
+            _origRenderBoard(data);
+            updateProgressBar(data);
+        };
+
+        // Also update progress bar when path changes
+        const _origApplyPath = applyPathChoice;
+        applyPathChoice = function(choice) {
+            _origApplyPath(choice);
+            if (_lastBatchData) {
+                _lastBatchData.seedPath = choice;
+                updateProgressBar(_lastBatchData);
+            }
+        };
+
+        window.onload = async () => {
+            lucide.createIcons();
+            setupBatchInputHandlers();
+            setDeleteButtonState(false, "Delete Batch");
+            await fetchBatchList(false);
+            renderBatchDropdown("");
+            hideBatchDropdown();
+        };
+
+        // ═══════════════════════════════════════════════════
+        //  PROFESSIONAL PDF LAB REPORT GENERATOR
+        // ═══════════════════════════════════════════════════
+
+        async function generateLabReport() {
+            const exportBtn = document.getElementById("exportPdfBtn");
+            const originalExportBtnText = exportBtn ? exportBtn.textContent : "";
+
+            function setExportButtonStatus(text) {
+                if (!exportBtn) return;
+                exportBtn.textContent = text;
+            }
+
+            if (exportBtn) {
+                exportBtn.disabled = true;
+                setExportButtonStatus("Generating PDF…");
+            }
+
+            try {
+                if (!batchId || !_lastBatchData) {
+                    alert("Please load a batch first before exporting.");
+                    return;
+                }
+
+                const data = _lastBatchData;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ unit: "mm", format: "a4" });
+                const pw = doc.internal.pageSize.getWidth();   // 210
+                const ph = doc.internal.pageSize.getHeight();  // 297
+                const ml = 20, mr = 20, mt = 25, mb = 25;     // margins
+                const cw = pw - ml - mr;                       // content width
+                let y = mt;
+                let pageNum = 1;
+
+                // Colour palette
+                const C = {
+                    primary:  [30, 27, 75],     // indigo-950
+                    accent:   [79, 70, 229],    // indigo-600
+                    green:    [16, 185, 129],    // emerald-500
+                    red:      [239, 68, 68],     // red-500
+                    amber:    [217, 119, 6],     // amber-600
+                    slate:    [100, 116, 139],   // slate-500
+                    slateL:   [148, 163, 184],   // slate-400
+                    bg:       [248, 250, 252],   // slate-50
+                    white:    [255, 255, 255],
+                    black:    [15, 23, 42],      // slate-900
+                    border:   [226, 232, 240],   // slate-200
+                };
+
+                // ── Helper: robust numeric parsing (handles comma-formatted values) ──
+                function parseNumeric(value) {
+                    if (value === null || value === undefined) return NaN;
+                    if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+
+                    const cleaned = String(value)
+                        .trim()
+                        .replace(/[\s,]/g, "")
+                        .replace(/[^0-9.+-]/g, "");
+                    if (!cleaned) return NaN;
+
+                    const parsed = Number(cleaned);
+                    return Number.isFinite(parsed) ? parsed : NaN;
+                }
+
+                // ── Helper: format number with thousands separators ──
+                function fmtNum(n, locale = "en-US") {
+                    const v = parseNumeric(n);
+                    if (Number.isNaN(v)) {
+                        const text = String(n || "—").trim();
+                        return text || "—";
+                    }
+
+                    const isInt = Math.abs(v % 1) < 0.0000001;
+                    return v.toLocaleString(locale, {
+                        minimumFractionDigits: isInt ? 0 : 1,
+                        maximumFractionDigits: isInt ? 0 : 2,
+                    });
+                }
+
+                // ── Helper: check space & add page ──
+                function ensureSpace(needed) {
+                    if (y + needed > ph - mb) {
+                        addFooter();
+                        doc.addPage();
+                        pageNum++;
+                        y = mt;
+                        addHeader();
+                    }
+                }
+
+                // ── Page header (after title page) ──
+                function addHeader() {
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(7);
+                    doc.setTextColor(...C.slateL);
+                    doc.text(`OL Pipeline — ${batchId.toUpperCase()}`, ml, 12);
+                    doc.text(`Page ${pageNum}`, pw - mr, 12, { align: "right" });
+                    doc.setDrawColor(...C.border);
+                    doc.setLineWidth(0.3);
+                    doc.line(ml, 15, pw - mr, 15);
+                    y = mt;
+                }
+
+                // ── Page footer ──
+                function addFooter() {
+                    doc.setDrawColor(...C.border);
+                    doc.setLineWidth(0.3);
+                    doc.line(ml, ph - 18, pw - mr, ph - 18);
+                    doc.setFont("helvetica", "italic");
+                    doc.setFontSize(6.5);
+                    doc.setTextColor(...C.slateL);
+                    doc.text("Confidential — OL Pipeline Lab Record", ml, ph - 13);
+                    doc.text(`Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`, pw - mr, ph - 13, { align: "right" });
+                }
+
+                // ── Helper: draw a section heading ──
+                function sectionHeading(title, color) {
+                    ensureSpace(14);
+                    doc.setFillColor(...(color || C.primary));
+                    doc.roundedRect(ml, y, cw, 10, 1.5, 1.5, "F");
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(11);
+                    doc.setTextColor(255, 255, 255);
+                    doc.text(title, ml + 5, y + 7);
+                    y += 14;
+                }
+
+                // ── Helper: key-value pair (wrapped to prevent overflow) ──
+                function kvLine(key, value, opts) {
+                    opts = opts || {};
+                    const indent = opts.indent || 0;
+                    const keyText = key + ":";
+                    const keyX = ml + indent;
+                    const valX = keyX + doc.getTextWidth(keyText + " ") + 1;
+                    const maxValueWidth = Math.max(20, pw - mr - valX);
+                    const valLines = doc.splitTextToSize(String(value || "—"), maxValueWidth);
+                    const lineHeight = 4;
+                    const needed = Math.max(7, (valLines.length * lineHeight) + 2);
+
+                    ensureSpace(needed);
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(8);
+                    doc.setTextColor(...C.slate);
+                    doc.text(keyText, keyX, y);
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(...C.black);
+                    doc.text(valLines, valX, y);
+                    y += needed;
+                }
+
+                // ── Helper: checkbox item ──
+                function checkItem(label, checked, indent) {
+                    ensureSpace(7);
+                    const x = ml + (indent || 4);
+                    doc.setFontSize(8);
+                    // Draw checkbox
+                    doc.setDrawColor(...(checked ? C.green : C.slateL));
+                    doc.setLineWidth(0.4);
+                    doc.rect(x, y - 3, 3.5, 3.5);
+                    if (checked) {
+                        doc.setFillColor(...C.green);
+                        doc.rect(x + 0.6, y - 2.4, 2.3, 2.3, "F");
+                    }
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(...C.black);
+                    doc.text(label, x + 6, y);
+                    y += 5.5;
+                }
+
+                // ── Helper: status badge ──
+                function statusBadge(isComplete) {
+                    const label = isComplete ? "COMPLETE" : "PENDING";
+                    const col = isComplete ? C.green : C.slateL;
+                    doc.setFontSize(7);
+                    doc.setFont("helvetica", "bold");
+                    const tw = doc.getTextWidth(label) + 6;
+                    doc.setFillColor(...col);
+                    doc.roundedRect(pw - mr - tw - 2, y - 8.5, tw + 2, 6, 1.5, 1.5, "F");
+                    doc.setTextColor(255, 255, 255);
+                    doc.text(label, pw - mr - tw + 1, y - 4.5);
+                }
+
+                // ── Image loading state for progress + diagnostics ──
+                const imageLoadState = {
+                    total: 0,
+                    completed: 0,
+                    succeeded: 0,
+                    failed: 0,
+                    startedAt: Date.now(),
+                };
+
+                function updateImageLoadProgress(label) {
+                    if (imageLoadState.total <= 0) return;
+                    const elapsedSec = Math.max(0, Math.round((Date.now() - imageLoadState.startedAt) / 1000));
+                    const base = `Loading images... (${imageLoadState.completed}/${imageLoadState.total})`;
+                    const suffix = label ? ` ${label}` : "";
+                    setExportButtonStatus(`${base}${suffix}`);
+                    console.log("[pdf-export][progress]", {
+                        completed: imageLoadState.completed,
+                        total: imageLoadState.total,
+                        succeeded: imageLoadState.succeeded,
+                        failed: imageLoadState.failed,
+                        elapsedSec,
+                    });
+                }
+
+                function classifyImageLoadError(err) {
+                    if (!err) return "unknown";
+                    const raw = String(err.message || err.code || err.name || err).toLowerCase();
+                    if (raw.includes("timeout")) return "timeout";
+                    if (raw.includes("cors") || raw.includes("taint") || raw.includes("security")) return "cors/security";
+                    if (raw.includes("403") || raw.includes("unauthorized") || raw.includes("auth")) return "auth";
+                    if (raw.includes("404") || raw.includes("not found")) return "not_found";
+                    if (raw.includes("network")) return "network";
+                    return "load_error";
+                }
+
+                function loadImageAsDataURL(url, timeoutMs) {
+                    // Use XMLHttpRequest with responseType:"blob" → FileReader.
+                    // This avoids both the canvas-taint CORS issue (old approach)
+                    // and the fetch() mode:"cors" restriction that Firebase Storage
+                    // sometimes rejects. XHR blob approach is the most compatible
+                    // method for reading Firebase Storage images as data URLs.
+                    return new Promise((resolve, reject) => {
+                        let done = false;
+
+                        const timer = setTimeout(() => {
+                            if (done) return;
+                            done = true;
+                            xhr.abort();
+                            reject(new Error(`timeout after ${timeoutMs}ms`));
+                        }, timeoutMs);
+
+                        const xhr = new XMLHttpRequest();
+                        xhr.open("GET", url, true);
+                        xhr.responseType = "blob";
+
+                        xhr.onload = () => {
+                            if (done) return;
+                            if (xhr.status < 200 || xhr.status >= 300) {
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error(`HTTP ${xhr.status} ${xhr.statusText}`));
+                                return;
+                            }
+                            const blob = xhr.response;
+                            if (!blob) {
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error("XHR returned empty blob"));
+                                return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                if (done) return;
+                                done = true;
+                                clearTimeout(timer);
+                                const dataUrl = reader.result;
+                                if (!dataUrl || !String(dataUrl).startsWith("data:image/")) {
+                                    reject(new Error("invalid data URL from FileReader"));
+                                } else {
+                                    resolve(dataUrl);
+                                }
+                            };
+                            reader.onerror = () => {
+                                if (done) return;
+                                done = true;
+                                clearTimeout(timer);
+                                reject(new Error("FileReader failed to read blob"));
+                            };
+                            reader.readAsDataURL(blob);
+                        };
+
+                        xhr.onerror = () => {
+                            if (done) return;
+                            done = true;
+                            clearTimeout(timer);
+                            reject(new Error("XHR network error"));
+                        };
+
+                        xhr.onabort = () => {
+                            if (done) return;
+                            done = true;
+                            clearTimeout(timer);
+                            reject(new Error("XHR aborted"));
+                        };
+
+                        xhr.send();
+                    });
+                }
+
+                // ── Helper: safely resolve an image URL and return data URL for PDF ──
+                async function getImageDataForPdf(imageObj, options) {
+                    if (!imageObj) {
+                        return { dataUrl: null, sourceUrl: null, error: "missing_image_object" };
+                    }
+
+                    const timeoutMs = (options && options.timeoutMs) || 30000;
+                    const imageLabel = imageObj.name || imageObj.path || imageObj.url || "unnamed-image";
+                    const candidateUrls = [];
+
+                    // Always prefer a FRESH download URL from Firebase Storage (via path).
+                    // The stored imageObj.url can be a blob: URL (only valid in the original
+                    // upload session) or a stale Firebase URL with an expired token.
+                    const normalizedPath = normalizeStoragePath(imageObj.path || imageObj.url || "");
+                    if (normalizedPath) {
+                        try {
+                            const downloadUrl = await storage.ref().child(normalizedPath).getDownloadURL();
+                            if (downloadUrl) candidateUrls.push(downloadUrl);
+                        } catch (storageErr) {
+                            console.warn("[pdf-export][image] getDownloadURL failed", {
+                                imageLabel,
+                                normalizedPath,
+                                error: storageErr?.message || String(storageErr),
+                            });
+                        }
+                    }
+
+                    // Fall back to stored URL only if it looks like a real https URL (not blob:)
+                    if (imageObj.url && String(imageObj.url).startsWith("https://")) {
+                        candidateUrls.push(imageObj.url);
+                    }
+
+                    const uniqueCandidates = Array.from(new Set(candidateUrls.filter(Boolean)));
+                    console.log("[pdf-export][image] candidates", {
+                        imageLabel,
+                        normalizedPath,
+                        candidates: uniqueCandidates,
+                    });
+
+                    if (uniqueCandidates.length === 0) {
+                        return { dataUrl: null, sourceUrl: null, error: "no_candidate_urls" };
+                    }
+
+                    const errors = [];
+                    for (const candidate of uniqueCandidates) {
+                        const startedAt = Date.now();
+                        try {
+                            const dataUrl = await loadImageAsDataURL(candidate, timeoutMs);
+                            console.log("[pdf-export][image] loaded", {
+                                imageLabel,
+                                candidate,
+                                durationMs: Date.now() - startedAt,
+                            });
+                            return { dataUrl, sourceUrl: candidate, error: null };
+                        } catch (err) {
+                            const reason = classifyImageLoadError(err);
+                            const detail = err?.message || String(err);
+                            errors.push(`${reason}: ${detail}`);
+                            console.warn("[pdf-export][image] candidate failed", {
+                                imageLabel,
+                                candidate,
+                                reason,
+                                detail,
+                                durationMs: Date.now() - startedAt,
+                            });
+                        }
+                    }
+
+                    return {
+                        dataUrl: null,
+                        sourceUrl: uniqueCandidates[0] || null,
+                        error: errors.join(" | ") || "unknown_image_error",
+                    };
+                }
+
+                // ── Helper: embed images in a grid (max 3 per row) ──
+                async function embedImages(images, maxW) {
+                    if (!images || images.length === 0) return;
+                    maxW = maxW || 45;
+                    const gap = 4;
+                    const perRow = Math.max(1, Math.min(3, Math.floor(cw / (maxW + gap))));
+                    const imgH = maxW * 0.75;
+
+                    imageLoadState.total += images.length;
+                    updateImageLoadProgress();
+
+                    for (let i = 0; i < images.length; i++) {
+                        if (i % perRow === 0) ensureSpace(imgH + 12);
+                        const col = i % perRow;
+                        const x = ml + col * (maxW + gap);
+
+                        const imageObj = images[i];
+                        const imageLabel = imageObj?.name || imageObj?.path || imageObj?.url || `image-${i + 1}`;
+                        const result = await getImageDataForPdf(imageObj, { timeoutMs: 30000 });
+
+                        imageLoadState.completed += 1;
+                        if (result.dataUrl) imageLoadState.succeeded += 1;
+                        else imageLoadState.failed += 1;
+
+                        try {
+                            if (result.dataUrl) {
+                                const format = result.dataUrl.startsWith("data:image/png") ? "PNG" : "JPEG";
+                                doc.addImage(result.dataUrl, format, x, y, maxW, imgH);
+                            } else {
+                                const reason = classifyImageLoadError(result.error);
+                                doc.setFillColor(...C.bg);
+                                doc.rect(x, y, maxW, imgH, "F");
+                                doc.setDrawColor(...C.border);
+                                doc.rect(x, y, maxW, imgH);
+                                doc.setFontSize(6);
+                                doc.setTextColor(...C.slateL);
+                                doc.text(["Image unavailable", `(${reason})`], x + 3, y + (imgH / 2) - 1);
+                                console.warn("[pdf-export][image] final fallback used", {
+                                    imageLabel,
+                                    reason,
+                                    error: result.error,
+                                    sourceUrl: result.sourceUrl,
+                                });
+                            }
+
+                            // Border
+                            doc.setDrawColor(...C.border);
+                            doc.setLineWidth(0.3);
+                            doc.rect(x, y, maxW, imgH);
+                        } catch (renderErr) {
+                            console.error("[pdf-export][image] render failed", {
+                                imageLabel,
+                                error: renderErr?.message || String(renderErr),
+                            });
+                            doc.setFillColor(...C.bg);
+                            doc.rect(x, y, maxW, imgH, "F");
+                            doc.setDrawColor(...C.border);
+                            doc.rect(x, y, maxW, imgH);
+                            doc.setFontSize(6);
+                            doc.setTextColor(...C.slateL);
+                            doc.text(["Image unavailable", "(render error)"], x + 3, y + (imgH / 2) - 1);
+                        }
+
+                        updateImageLoadProgress(imageLoadState.failed > 0 ? `• failed: ${imageLoadState.failed}` : "");
+
+                        // Caption
+                        const caption = imageObj?.name || imageObj?.path?.split("/").pop() || "";
+                        if (caption && caption !== "Image Log") {
+                            doc.setFontSize(5.5);
+                            doc.setFont("helvetica", "italic");
+                            doc.setTextColor(...C.slateL);
+                            const capLines = doc.splitTextToSize(caption, maxW);
+                            doc.text(capLines.slice(0, 2), x, y + imgH + 3.5);
+                        }
+
+                        if (col === perRow - 1 || i === images.length - 1) {
+                            y += imgH + 8;
+                        }
+                    }
+                }
+
+                // ── Collect team members ──
+                function getTeamMembers() {
+                    const members = new Set();
+                    for (let i = 1; i <= 7; i++) {
+                        const g = data["g" + i];
+                        if (g && g.by) members.add(g.by);
+                    }
+                    return Array.from(members);
+                }
+
+                // ── Get date range ──
+                function getDateRange() {
+                    let earliest = null, latest = null;
+                    for (let i = 1; i <= 7; i++) {
+                        const g = data["g" + i];
+                        if (g && g.time) {
+                            if (!earliest) earliest = g.time;
+                            latest = g.time;
+                        }
+                    }
+                    return { start: earliest || "—", end: latest || "—" };
+                }
+
+            // ══════════════════════════════════════════
+            //              TITLE PAGE
+            // ══════════════════════════════════════════
+
+            // Background accent stripe
+            doc.setFillColor(...C.primary);
+            doc.rect(0, 0, pw, 90, "F");
+
+            // Decorative line
+            doc.setFillColor(...C.accent);
+            doc.rect(0, 90, pw, 3, "F");
+
+            // Title text
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(28);
+            doc.setTextColor(255, 255, 255);
+            doc.text("OL PIPELINE", pw / 2, 38, { align: "center" });
+
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(200, 200, 255);
+            doc.text("Laboratory Record", pw / 2, 50, { align: "center" });
+
+            // Batch info box
+            const boxY = 105;
+            doc.setFillColor(255, 255, 255);
             doc.setDrawColor(...C.border);
-            doc.setLineWidth(0.3);
-            doc.line(ml, ph - 18, pw - ml, ph - 18);
+            doc.setLineWidth(0.5);
+            doc.roundedRect(ml + 10, boxY, cw - 20, 80, 3, 3, "FD");
+
+            let ty = boxY + 14;
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(...C.slate);
+            doc.text("EXPERIMENT BATCH", pw / 2, ty, { align: "center" });
+            ty += 10;
+            doc.setFontSize(22);
+            doc.setTextColor(...C.primary);
+            doc.text(batchId.toUpperCase(), pw / 2, ty, { align: "center" });
+
+            ty += 14;
+            doc.setFontSize(9);
+            doc.setTextColor(...C.slate);
+            const notesText = getBatchNotes(data) || "—";
+            const metaLabelX = ml + 22;
+            const metaValueX = ml + 50;
+            const metaValueMaxW = (ml + 10 + (cw - 20)) - 6 - metaValueX;
+            const notesLines = doc.splitTextToSize(notesText, metaValueMaxW);
+
+            doc.setFont("helvetica", "bold");
+            doc.text("Notes:", metaLabelX, ty);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...C.black);
+            doc.text(notesLines, metaValueX, ty);
+
+            ty += Math.max(8, notesLines.length * 4);
+            const dates = getDateRange();
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...C.slate);
+            doc.text("Date Range:", metaLabelX, ty);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...C.black);
+            const dateLines = doc.splitTextToSize(`${dates.start}  →  ${dates.end}`, metaValueMaxW);
+            doc.text(dateLines, metaValueX, ty);
+
+            ty += Math.max(8, dateLines.length * 4);
+            const team = getTeamMembers();
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...C.slate);
+            doc.text("Team:", metaLabelX, ty);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...C.black);
+            const teamLines = doc.splitTextToSize(team.length > 0 ? team.join(", ") : "—", metaValueMaxW);
+            doc.text(teamLines, metaValueX, ty);
+
+            ty += Math.max(8, teamLines.length * 4);
+            const pathChoice = data.seedPath || "Not selected";
+            const pathLabels = { direct: "Direct Seeding", expand: "Expansion", both: "Direct Seeding + Expansion" };
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(...C.slate);
+            doc.text("Path:", metaLabelX, ty);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(...C.black);
+            const pathLines = doc.splitTextToSize(pathLabels[pathChoice] || pathChoice, metaValueMaxW);
+            doc.text(pathLines, metaValueX, ty);
+
+            ty += Math.max(8, pathLines.length * 4);
+
+            // Summary overview table
+            const summaryY = Math.max(boxY + 95, ty + 8);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.setTextColor(...C.primary);
+            doc.text("Gate Summary", pw / 2, summaryY, { align: "center" });
+
+            const visibleGates = getVisibleGates(data.seedPath);
+            const summaryRows = visibleGates.map(num => {
+                const def = GATE_DEFS.find(d => d.num === num);
+                const g = data["g" + num];
+                const done = isGateComplete(data, num);
+                return [
+                    `Gate ${num}`,
+                    def.label,
+                    done ? "✓ Complete" : "○ Pending",
+                    g && g.by ? g.by : "—",
+                    g && g.time ? g.time : "—"
+                ];
+            });
+
+            doc.autoTable({
+                startY: summaryY + 4,
+                head: [["Gate", "Name", "Status", "By", "Timestamp"]],
+                body: summaryRows,
+                theme: "grid",
+                margin: { left: ml + 5, right: mr + 5 },
+                styles: { fontSize: 7.5, font: "helvetica", cellPadding: 2.5, lineColor: C.border, lineWidth: 0.3 },
+                headStyles: { fillColor: C.primary, textColor: [255, 255, 255], fontStyle: "bold" },
+                bodyStyles: { textColor: C.black },
+                columnStyles: {
+                    2: { fontStyle: "bold" },
+                },
+                didParseCell: function(hookData) {
+                    if (hookData.section === "body" && hookData.column.index === 2) {
+                        if (hookData.cell.raw.startsWith("✓")) {
+                            hookData.cell.styles.textColor = C.green;
+                        } else {
+                            hookData.cell.styles.textColor = C.slateL;
+                        }
+                    }
+                }
+            });
+
+            // Footer on title page
             doc.setFont("helvetica", "italic");
             doc.setFontSize(6.5);
             doc.setTextColor(...C.slateL);
             doc.text("Confidential — OL Pipeline Lab Record", ml, ph - 13);
-            doc.text(`Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`, pw - ml, ph - 13, { align: "right" });
-        }
+            doc.text(`Generated ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`, pw - mr, ph - 13, { align: "right" });
 
-        // Here, the main code to generate pages, embed images, etc.
-        const visibleGates = getVisibleGates(data.seedPath);
-        for (const gateNum of visibleGates) {
-            const g = data["g" + gateNum];
-            const done = isGateComplete(data, gateNum);
-            const gateColor = gateColours[gateNum] || C.primary;
+            // ══════════════════════════════════════════
+            //            GATE DETAIL PAGES
+            // ══════════════════════════════════════════
+
+            const gateColours = {
+                1: [59, 130, 246],    // blue-500
+                2: [168, 85, 247],    // purple-500
+                3: [245, 158, 11],    // amber-400
+                4: [5, 150, 105],     // emerald-600
+                5: [244, 63, 94],     // rose-500
+                6: [99, 102, 241],    // indigo-500
+                7: [15, 23, 42],      // slate-900
+            };
+
+            const gateNames = {
+                1: "Micropillar Fabrication",
+                2: "Functionalisation & Coating",
+                3: "Isolation Reagents",
+                4: "OPC Isolation (MACS)",
+                5: "Control Seeding",
+                6: "Flask Expansion Log",
+                7: "Lift & Final Seeding"
+            };
+
+            const gateChecks = {
+                1: ["Pillars verified at 10× magnification"],
+                2: ["Functionalised / PDL + Laminin coated", "Pillars verified at 10× magnification"],
+                3: ["Papain, Serum PBS & Media: Prepared & Sterile Filtered"],
+                4: ["OPC isolation and MACS completed"],
+                5: ["Seeded 2 wells of 4-well control plate"],
+                6: ["Cells healthy / Ready for lifting"],
+                7: ["Lifted with Accutase @ 37°C", "Counts verified & Seeded to Pillars"],
+            };
+
+            for (const gateNum of visibleGates) {
+                const g = data["g" + gateNum];
+                const done = isGateComplete(data, gateNum);
+                const color = gateColours[gateNum] || C.primary;
+
+                // New page for each gate
+                doc.addPage();
+                pageNum++;
+                addHeader();
+
+                // Gate heading
+                sectionHeading(`Gate ${gateNum}  —  ${gateNames[gateNum]}`, color);
+                statusBadge(done);
+
+                // Metadata
+                if (g && g.by) {
+                    kvLine("Recorded by", g.by);
+                }
+                if (g && g.time) {
+                    kvLine("Timestamp", g.time);
+                }
+                const gateNotes = g ? ((g.notes && String(g.notes).trim()) || (g.stiffness && String(g.stiffness).trim()) || "") : "";
+                if (gateNotes) {
+                    kvLine("Notes", gateNotes);
+                }
+
+                y += 2;
+
+                // Checkboxes
+                if (gateChecks[gateNum]) {
+                    ensureSpace(10);
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(...C.primary);
+                    doc.text("Quality Checks", ml + 2, y);
+                    y += 5;
+
+                    gateChecks[gateNum].forEach((label, idx) => {
+                        const checked = g && g.checks && g.checks[idx];
+                        checkItem(label, checked);
+                    });
+                    y += 2;
+                }
+
+                // Gate 4 special: MACS data
+                if (gateNum === 4) {
+                    const pups = g ? (g.pups || "—") : "—";
+                    const preC = g && g.pre ? g.pre.c : "";
+                    const preV = g && g.pre ? g.pre.v : "";
+                    const postC = g && g.post ? g.post.c : "";
+                    const postV = g && g.post ? g.post.v : "";
+
+                    const pupsNum = parseNumeric(pups);
+                    const preCNum = parseNumeric(preC);
+                    const postCNum = parseNumeric(postC);
+                    const storedCppNum = parseNumeric(g ? g.cpp : "");
+                    const computedCppNum = (Number.isFinite(postCNum) && Number.isFinite(pupsNum) && pupsNum > 0)
+                        ? Math.round(postCNum / pupsNum)
+                        : NaN;
+                    const cppNum = Number.isFinite(computedCppNum) ? computedCppNum : storedCppNum;
+                    const cppDisplay = Number.isFinite(cppNum) ? fmtNum(cppNum) : "—";
+
+                    // Data table
+                    doc.autoTable({
+                        startY: y,
+                        head: [["Metric", "Value"]],
+                        body: [
+                            ["Total Pups", fmtNum(pups)],
+                            ["Pre-MACS Cell Count", fmtNum(preC)],
+                            ["Pre-MACS Viability", preV ? `${preV}%` : "—"],
+                            ["Post-MACS Cell Count (O4+)", fmtNum(postC)],
+                            ["Post-MACS Viability", postV ? `${postV}%` : "—"],
+                            ["Yield per Pup (Post-MACS)", cppDisplay],
+                        ],
+                        theme: "striped",
+                        margin: { left: ml + 2, right: mr + 30 },
+                        styles: { fontSize: 8, font: "helvetica", cellPadding: 3, lineColor: C.border, lineWidth: 0.2 },
+                        headStyles: { fillColor: color, textColor: [255, 255, 255], fontStyle: "bold" },
+                        bodyStyles: { textColor: C.black },
+                        alternateRowStyles: { fillColor: [245, 250, 248] },
+                        columnStyles: { 0: { fontStyle: "bold", cellWidth: 55 } }
+                    });
+
+                    y = doc.lastAutoTable.finalY + 6;
+
+                    // MACS efficiency calculation
+                    if (Number.isFinite(preCNum) && preCNum > 0 && Number.isFinite(postCNum)) {
+                        const efficiency = ((postCNum / preCNum) * 100).toFixed(1);
+                        ensureSpace(12);
+                        doc.setFillColor(240, 253, 244);
+                        doc.roundedRect(ml + 2, y, cw - 4, 10, 2, 2, "F");
+                        doc.setDrawColor(...C.green);
+                        doc.setLineWidth(0.5);
+                        doc.roundedRect(ml + 2, y, cw - 4, 10, 2, 2, "S");
+                        doc.setFont("helvetica", "bold");
+                        doc.setFontSize(9);
+                        doc.setTextColor(...C.green);
+                        doc.text(`MACS Efficiency: ${efficiency}%  |  Yield/Pup: ${cppDisplay} cells`, ml + 8, y + 6.5);
+                        y += 14;
+                    }
+
+                    // Pre-MACS images
+                    const preImgs = g ? (g.imgs_pre || []) : [];
+                    if (preImgs.length > 0) {
+                        ensureSpace(15);
+                        doc.setFont("helvetica", "bold");
+                        doc.setFontSize(8);
+                        doc.setTextColor(...C.slate);
+                        doc.text("Pre-MACS Images", ml + 2, y);
+                        y += 5;
+                        await embedImages(preImgs);
+                    }
+
+                    // Post-MACS images
+                    const postImgs = g ? (g.imgs_post || []) : [];
+                    if (postImgs.length > 0) {
+                        ensureSpace(15);
+                        doc.setFont("helvetica", "bold");
+                        doc.setFontSize(8);
+                        doc.setTextColor(...C.slate);
+                        doc.text("Post-MACS Images", ml + 2, y);
+                        y += 5;
+                        await embedImages(postImgs);
+                    }
+
+                } else {
+                    // Standard gate images
+                    const imgs = g ? (g.imgs_main || []) : [];
+                    if (imgs.length > 0) {
+                        ensureSpace(15);
+                        doc.setFont("helvetica", "bold");
+                        doc.setFontSize(8);
+                        doc.setTextColor(...C.slate);
+                        doc.text("Uploaded Images", ml + 2, y);
+                        y += 5;
+                        await embedImages(imgs);
+                    }
+                }
+
+                // Gate-level notes/footer
+                if (!g || !done) {
+                    ensureSpace(14);
+                    doc.setFillColor(255, 251, 235);
+                    doc.roundedRect(ml + 2, y, cw - 4, 10, 2, 2, "F");
+                    doc.setDrawColor(...C.amber);
+                    doc.setLineWidth(0.4);
+                    doc.roundedRect(ml + 2, y, cw - 4, 10, 2, 2, "S");
+                    doc.setFont("helvetica", "italic");
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(...C.amber);
+                    doc.text("⚠  This gate has not been completed or fully recorded.", ml + 8, y + 6.5);
+                    y += 14;
+                }
+
+                addFooter();
+            }
+
+            // ══════════════════════════════════════════
+            //            AUDIT TRAIL PAGE
+            // ══════════════════════════════════════════
             doc.addPage();
             pageNum++;
             addHeader();
+            sectionHeading("Audit Trail", C.primary);
 
-            sectionHeading(`Gate ${gateNum}  —  ${gateNames[gateNum]}`, gateColor);
-            statusBadge(done);
+            const auditRows = [];
+            for (let i = 1; i <= 7; i++) {
+                const g = data["g" + i];
+                if (g && g.time) {
+                    auditRows.push([
+                        `Gate ${i}`,
+                        gateNames[i],
+                        g.by || "—",
+                        g.time,
+                        isGateComplete(data, i) ? "Completed" : "In Progress"
+                    ]);
+                }
+            }
 
-            if (gateNum === 4) {
-                const preImgs = g ? (g.imgs_pre || []) : [];
-                if (preImgs.length > 0) {
-                    ensureSpace(15);
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(8);
-                    doc.setTextColor(...C.slate);
-                    doc.text("Pre-MACS Images", ml + 2, y);
-                    y += 5;
-                    await embedImages(preImgs);
-                }
-                const postImgs = g ? (g.imgs_post || []) : [];
-                if (postImgs.length > 0) {
-                    ensureSpace(15);
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(8);
-                    doc.setTextColor(...C.slate);
-                    doc.text("Post-MACS Images", ml + 2, y);
-                    y += 5;
-                    await embedImages(postImgs);
-                }
+            if (auditRows.length > 0) {
+                doc.autoTable({
+                    startY: y,
+                    head: [["Gate", "Name", "User", "Timestamp", "Status"]],
+                    body: auditRows,
+                    theme: "grid",
+                    margin: { left: ml, right: mr },
+                    styles: { fontSize: 7.5, font: "helvetica", cellPadding: 3, lineColor: C.border, lineWidth: 0.3 },
+                    headStyles: { fillColor: C.primary, textColor: [255, 255, 255], fontStyle: "bold" },
+                    bodyStyles: { textColor: C.black },
+                    columnStyles: { 4: { fontStyle: "bold" } },
+                    didParseCell: function(hookData) {
+                        if (hookData.section === "body" && hookData.column.index === 4) {
+                            hookData.cell.styles.textColor = hookData.cell.raw === "Completed" ? C.green : C.amber;
+                        }
+                    }
+                });
+                y = doc.lastAutoTable.finalY + 8;
             } else {
-                const imgs = g ? (g.imgs_main || []) : [];
-                if (imgs.length > 0) {
-                    ensureSpace(15);
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(8);
-                    doc.setTextColor(...C.slate);
-                    doc.text("Uploaded Images", ml + 2, y);
-                    y += 5;
-                    await embedImages(imgs);
+                doc.setFont("helvetica", "italic");
+                doc.setFontSize(8);
+                doc.setTextColor(...C.slateL);
+                doc.text("No gate activity recorded yet.", ml, y);
+                y += 8;
+            }
+
+            // Batch configuration summary
+            ensureSpace(30);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(8.5);
+            doc.setTextColor(...C.primary);
+            doc.text("Batch Configuration", ml + 2, y);
+            y += 6;
+            kvLine("Batch ID", batchId.toUpperCase());
+            kvLine("Notes", notesText);
+            kvLine("Post-Isolation Path", pathLabels[data.seedPath] || "Not selected");
+            kvLine("Active Gates", visibleGates.map(n => `G${n}`).join(", "));
+            kvLine("Report Generated", new Date().toLocaleString("en-GB"));
+
+            addFooter();
+
+            const totalImageLoadSec = Math.round((Date.now() - imageLoadState.startedAt) / 1000);
+            console.log("[pdf-export][summary]", {
+                batchId,
+                totalImages: imageLoadState.total,
+                loaded: imageLoadState.succeeded,
+                failed: imageLoadState.failed,
+                durationSec: totalImageLoadSec,
+            });
+
+            setExportButtonStatus("Finalizing PDF…");
+
+            // ── Save ──
+            const filename = `OL-Pipeline-${batchId.toUpperCase().replace(/\s+/g, "-")}.pdf`;
+            doc.save(filename);
+            } catch (err) {
+                console.error("[pdf-export] failed", err);
+                alert("Failed to generate PDF. Please try again.");
+            } finally {
+                if (exportBtn) {
+                    exportBtn.disabled = false;
+                    exportBtn.textContent = originalExportBtnText || "Export Lab Report (PDF)";
                 }
             }
         }
 
-        addFooter();
-        const filename = `OL-Pipeline-${batchId.toUpperCase().replace(/\s+/g, "-")}.pdf`;
-        doc.save(filename);
-
-    } catch (err) {
-        console.error("[pdf-export] failed", err);
-        alert("Failed to generate PDF. Please try again.");
-    } finally {
-        if (exportBtn) {
-            exportBtn.disabled = false;
-            exportBtn.textContent = originalExportBtnText || "Export Lab Report (PDF)";
-        }
-    }
-}
-</script>
+    </script>
 </body>
 </html>
